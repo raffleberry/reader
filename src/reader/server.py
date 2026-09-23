@@ -1,18 +1,17 @@
-"""HTTP server: TTS API + settings + static frontend.
+"""HTTP server: TTS API + settings + static UI.
 
-Books live in the frontend (IndexedDB); this server only speaks.
-Run: uv run python -m backend.server.
+Books live in the UI (IndexedDB); this server only speaks.
+Run: uv run python -m reader.
 """
 import asyncio
 import os
-from pathlib import Path
 
 from aiohttp import web
 
-from . import settings, voice
+from . import browser, settings, voice
+from .paths import dist
 
-ROOT = Path(__file__).resolve().parent.parent
-DIST = ROOT / "frontend" / "dist"
+DIST = dist()
 MAX_PREFETCH = 20
 
 
@@ -126,8 +125,10 @@ async def dev_hint(_req):
 
 def main():
     port = int(os.getenv("PORT", "8000"))
+    url = f"http://127.0.0.1:{port}"
+    print(f"Reader at {url}", flush=True)
+    browser.open(url)
     web.run_app(make_app(), host="127.0.0.1", port=port, print=None)
-    print(f"Reader at http://127.0.0.1:{port}")
 
 
 if __name__ == "__main__":

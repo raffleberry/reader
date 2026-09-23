@@ -1,4 +1,4 @@
-from backend import settings
+from reader import settings
 
 
 def test_defaults(tmp_path, monkeypatch):
@@ -41,13 +41,13 @@ def test_bad_values_rejected(tmp_path, monkeypatch):
 
 def test_corrupt_file_falls_back(tmp_path, monkeypatch):
     use_tmp(tmp_path, monkeypatch)
-    from backend import store
+    from reader import store
 
     store.settings_file().write_text("{broken")
     assert settings.load()["cache_mb"] == 100
 
 
 def use_tmp(tmp_path, monkeypatch):
-    import backend.store as store_mod
+    import reader.store as store_mod
 
     monkeypatch.setattr(store_mod, "settings_file", lambda: tmp_path / "s.json")

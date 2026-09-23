@@ -5,15 +5,15 @@ EPUB reader + read-aloud. Books live in browser IndexedDB (gated on `persist()`)
 ## Commands (`just` is truth; don't invent)
 
 - `setup` (uv sync + bun install) · `server` :8000 · `web` :5173 (proxies /api) · `dev` both
-- `build` (vue-tsc + vite → frontend/dist, served by backend) · `check` (compileall + pytest + build) · `e2e` (playwright chromium highlighter tests; first time: `bun x playwright install chromium`)
+- `build` (vue-tsc + vite → src/ui/dist, served by server) · `check` (compileall + pytest + build) · `e2e` (playwright chromium highlighter tests; first time: `bun x playwright install chromium`) · `package` (PyInstaller onefile → dist/reader(.exe), auto-opens browser)
 
-## Backend (`backend/`, uv, aiohttp + edge-tts + platformdirs)
+## Backend (`src/reader/`, uv, aiohttp + edge-tts + platformdirs)
 
-- `server.py`: `GET /api/health|settings|cache/stats`, `PUT /api/settings`, `DELETE /api/cache`, `POST /api/tts/audio|words {text}`, `POST /api/tts/prefetch {texts}` (202, max 20). TTS fail → 502. `PORT` overrides 8000.
-- `voice.py`: shared disk LRU keyed `sha1(voice+text)`; `settings.py`: validated JSON (`cache_mb` 10-2000, `readahead` 0-10, voice str).
+- `server.py`: `GET /api/health|settings|cache/stats`, `PUT /api/settings`, `DELETE /api/cache`, `POST /api/tts/audio|words {text}`, `POST /api/tts/prefetch {texts}` (202, max 20). TTS fail → 502. `PORT` overrides 8000. `main()` auto-opens the browser via `browser.py`.
+- `voice.py`: shared disk LRU keyed `sha1(voice+text)`; `settings.py`: validated JSON (`cache_mb` 10-2000, `readahead` 0-10, voice str). `paths.py`: UI dist lookup (frozen `ui/dist` vs source `src/ui/dist`).
 - Dirs: `~/.cache/reader/tts`, `~/.config/reader/settings.json` (Linux; platformdirs elsewhere).
 
-## Frontend (`frontend/`, bun, TS `<script setup>`, Bootstrap; custom CSS only App.vue)
+## UI (`src/ui/`, bun, TS `<script setup>`, Bootstrap; custom CSS only App.vue)
 
 - `db.ts` (IDB v2: `books` + `marks` with `bookId` index), `text/epub.ts` (zip→sentences, keys `00-0003`; chapters parsed as lenient HTML, splitter regex-dumb on purpose), `api/voice|settings` (`VOICES`: 47 English Edge voices, Ava first = default), `store/reader|player|sidecar` (player: module-scope `Audio` with lookahead queue, run + play tokens drop stale work, rAF word sync; `RATES` + `setRate` for client-side speed), `tts/locate.ts` (sentence→DOM via whitespace-collapsed back-map incl. whitespace-only nodes; words painted via live-DOM search inside the sentence element so paint-splits can't drift; `placeSentences` + `sentenceIndexAtSelection` resolve read-from-here by DOM position, never text search; skips unfound words, prefix fallback when the tail differs), `theme.ts` (`data-theme` + `data-bs-theme` on `<html>`, 4 themes incl. monokai, per-theme `HIGHLIGHT_CSS`).
 - Views: `Library`, `Reader` (no Settings route — settings live in the sidecar). Components: `TopBar`, `BookCard`, `ReaderBar` (slim: title + toc/settings buttons only), `Sidecar` (toc/marks/settings tabs + collapse rail), `TocList`, `BookmarksPanel`, `SettingsPanel` (voice + rate + theme + font + wheel + auto-scroll + cache; rate/theme/font/wheel/auto-scroll apply immediately, voice/cache need Save), `StorageGate`.
@@ -26,7 +26,7 @@ EPUB reader + read-aloud. Books live in browser IndexedDB (gated on `persist()`)
 ## Tests
 
 `test_settings.py`, `test_voice.py` — offline-safe, TTS never touched.
-`frontend/e2e/` — playwright chromium (`just e2e`, boots vite dev itself): `highlight.spec.ts` (locate.ts sentence/word paints), `player.spec.ts` (`ensureSentenceDoc` display/page-turn via a fake rendition), `selection.spec.ts` (read-from-here DOM-position resolution), `settings.spec.ts` (Ava-default voices, per-theme highlight CSS, playback rate clamp/persist/apply).
+`src/ui/e2e/` — playwright chromium (`just e2e`, boots vite dev itself): `highlight.spec.ts` (locate.ts sentence/word paints), `player.spec.ts` (`ensureSentenceDoc` display/page-turn via a fake rendition), `selection.spec.ts` (read-from-here DOM-position resolution), `settings.spec.ts` (Ava-default voices, per-theme highlight CSS, playback rate clamp/persist/apply).
 
 ## Guidance
 

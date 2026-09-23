@@ -1,7 +1,7 @@
 """LRU + key tests (no network; the TTS service is never touched)."""
 import pytest
 
-from backend import voice
+from reader import voice
 
 
 def test_key_stable():

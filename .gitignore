@@ -4,9 +4,11 @@ __pycache__/
 .venv/
 dist/
 node_modules/
-frontend/dist/
-frontend/test-results/
-frontend/playwright-report/
+src/ui/dist/
+src/ui/test-results/
+src/ui/playwright-report/
+build/
+reader.spec
 storage/uploads/*
 storage/cache/*
 storage/books.json
