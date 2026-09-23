@@ -1,0 +1,90 @@
+name: release
+
+on:
+  push:
+    branches: [release]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: next
+        run: |
+          set -euo pipefail
+          git fetch --tags
+          max=0
+          for t in $(git tag -l 'v[0-9]*'); do
+            n=${t#v}
+            case $n in (*[!0-9]*) continue;; esac
+            [ "$n" -gt "$max" ] && max=$n
+          done
+          tag="v$((max + 1))"
+          [ "$max" -eq 0 ] && tag="v1"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          git tag "$tag"
+          git push origin "$tag"
+
+  build:
+    needs: tag
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: uv sync --group packaging
+      - run: bun install
+        working-directory: src/ui
+      - run: bun run build
+        working-directory: src/ui
+      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --paths src --add-data "src/ui/dist:ui/dist" --collect-all edge_tts --collect-all aiohttp src/reader/__main__.py
+        if: runner.os != 'Windows'
+      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --paths src --add-data "src/ui/dist;ui/dist" --collect-all edge_tts --collect-all aiohttp src/reader/__main__.py
+        if: runner.os == 'Windows'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-${{ runner.os }}-${{ needs.tag.outputs.tag }}
+          path: dist/reader*
+
+  publish:
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: ls -R artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.tag.outputs.tag }}
+          target_commitish: release
+          generate_release_notes: true
+          files: artifacts/reader*
+      - run: |
+          set -euo pipefail
+          mapfile -t old < <(gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+$' | sort -t v -k2 -n | head -n -5 || true)
+          for t in ${old[@]:-}; do
+            echo "deleting old release $t"
+            gh release delete "$t" --cleanup-tag --yes
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

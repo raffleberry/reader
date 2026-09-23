@@ -8,8 +8,8 @@ import os
 
 from aiohttp import web
 
-from . import browser, settings, voice
-from .paths import dist
+from reader import browser, settings, voice
+from reader.paths import dist
 
 DIST = dist()
 MAX_PREFETCH = 20

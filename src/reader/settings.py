@@ -1,7 +1,7 @@
 """Backend settings, persisted in the system config dir."""
 import json
 
-from . import store
+from reader import store
 
 DEFAULTS = {"cache_mb": 100, "readahead": 3, "voice": "en-US-AvaNeural"}
 MIN_MB, MAX_MB = 10, 2000

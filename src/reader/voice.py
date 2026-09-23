@@ -10,7 +10,7 @@ import json
 from collections import OrderedDict
 from pathlib import Path
 
-from . import settings, store
+from reader import settings, store
 
 MAX_TEXT = 5000
 
