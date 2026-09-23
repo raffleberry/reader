@@ -32,6 +32,10 @@ check:
     uv run --group dev pytest -q
     cd frontend && bun run build
 
+# Browser tests for the highlighter (first time: bun x playwright install chromium).
+e2e:
+    cd frontend && bun x playwright test
+
 # Remove build output and python caches.
 clean:
     rm -rf frontend/dist frontend/node_modules/.vite

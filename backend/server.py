@@ -1,112 +1,110 @@
-"""HTTP server: JSON API + static frontend. Run: uv run python -m backend.server."""
+"""HTTP server: TTS API + settings + static frontend.
+
+Books live in the frontend (IndexedDB); this server only speaks.
+Run: uv run python -m backend.server.
+"""
+import asyncio
 import os
-from dataclasses import asdict
 from pathlib import Path
 
 from aiohttp import web
 
-from . import books, store, text, voice
+from . import settings, voice
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "frontend" / "dist"
-MAX_FILE = 100 * 1024 * 1024  # 100 MB uploads
-CT = {"epub": "application/epub+zip"}
+MAX_PREFETCH = 20
 
 
 async def health(_req):
     return web.json_response({"ok": True})
 
 
-async def list_books(_req):
-    return web.json_response(books.all())
+async def get_settings(_req):
+    return web.json_response(settings.load())
 
 
-async def add_book(req):
-    post = await req.post()
-    field = post.get("file")
-    if field is None or not hasattr(field, "file"):
-        return web.json_response({"error": "send a file as field 'file'"}, status=400)
+async def put_settings(req):
     try:
-        book = books.add(field.filename or "book", field.file.read())
+        body = await req.json()
+    except ValueError:
+        return web.json_response({"error": "body must be JSON"}, status=400)
+    try:
+        out = settings.save(body)
     except ValueError as err:
         return web.json_response({"error": str(err)}, status=400)
-    return web.json_response(book, status=201)
+    await voice.CACHE.trim(out["cache_mb"] * 1024 * 1024)
+    return web.json_response(out)
 
 
-async def show_book(req):
-    book = books.get(req.match_info["id"])
-    if book is None:
-        return web.json_response({"error": "not found"}, status=404)
-    return web.json_response(book)
+async def cache_stats(_req):
+    return web.json_response(await voice.CACHE.stats())
 
 
-async def send_file(req):
-    book = books.get(req.match_info["id"])
-    if book is None:
-        return web.json_response({"error": "not found"}, status=404)
-    raw = books.raw_path(book)
-    if not raw.exists():
-        return web.json_response({"error": "file missing"}, status=404)
-    return web.FileResponse(raw, headers={"Content-Type": CT[book["format"]]})
+async def cache_clear(_req):
+    await voice.CACHE.clear()
+    return web.json_response({"ok": True})
 
 
-async def send_text(req):
-    book = books.get(req.match_info["id"])
-    if book is None:
-        return web.json_response({"error": "not found"}, status=404)
+async def speak(req):
     try:
-        chapters = text.load_chapters(
-            book["format"], books.raw_path(book), books.text_cache(book["id"])
-        )
+        body = await req.json()
+    except ValueError:
+        return web.json_response({"error": "body must be JSON"}, status=400)
+    try:
+        audio, _words = await voice.ensure(str(body.get("text", "")))
     except ValueError as err:
         return web.json_response({"error": str(err)}, status=400)
-    return web.json_response({"chapters": [asdict(c) for c in chapters]})
-
-
-async def send_audio(req):
-    book = books.get(req.match_info["id"])
-    if book is None:
-        return web.json_response({"error": "not found"}, status=404)
-    try:
-        audio, _words = await voice.ensure_audio(book, req.match_info["key"])
-    except KeyError:
-        return web.json_response({"error": "unknown sentence"}, status=404)
     except RuntimeError as err:
         return web.json_response({"error": str(err)}, status=502)
-    return web.FileResponse(audio, headers={"Content-Type": "audio/mpeg"})
+    return web.Response(body=audio, content_type="audio/mpeg")
 
 
-async def send_words(req):
-    book = books.get(req.match_info["id"])
-    if book is None:
-        return web.json_response({"error": "not found"}, status=404)
+async def speak_words(req):
     try:
-        _audio, words = await voice.ensure_audio(book, req.match_info["key"])
-    except KeyError:
-        return web.json_response({"error": "unknown sentence"}, status=404)
+        body = await req.json()
+    except ValueError:
+        return web.json_response({"error": "body must be JSON"}, status=400)
+    try:
+        _audio, words = await voice.ensure(str(body.get("text", "")))
+    except ValueError as err:
+        return web.json_response({"error": str(err)}, status=400)
     except RuntimeError as err:
         return web.json_response({"error": str(err)}, status=502)
     return web.json_response({"words": words})
 
 
-async def drop_book(req):
-    if not books.drop(req.match_info["id"]):
-        return web.json_response({"error": "not found"}, status=404)
-    return web.json_response({"ok": True})
+async def prefetch(req):
+    try:
+        body = await req.json()
+    except ValueError:
+        return web.json_response({"error": "body must be JSON"}, status=400)
+    texts = body.get("texts", [])
+    if not isinstance(texts, list):
+        return web.json_response({"error": "texts must be a list"}, status=400)
+    for text in texts[:MAX_PREFETCH]:
+        if isinstance(text, str) and text.strip():
+            asyncio.ensure_future(_warm(text))
+    return web.json_response({"ok": True}, status=202)
+
+
+async def _warm(text: str):
+    try:
+        await voice.ensure(text)
+    except (ValueError, RuntimeError):
+        pass  # real request will surface the error
 
 
 def make_app() -> web.Application:
-    store.dirs()
-    app = web.Application(client_max_size=MAX_FILE)
+    app = web.Application()
     app.router.add_get("/api/health", health)
-    app.router.add_get("/api/books", list_books)
-    app.router.add_post("/api/books", add_book)
-    app.router.add_get("/api/books/{id}", show_book)
-    app.router.add_get("/api/books/{id}/file", send_file)
-    app.router.add_get("/api/books/{id}/sentences", send_text)
-    app.router.add_get("/api/books/{id}/audio/{key}", send_audio)
-    app.router.add_get("/api/books/{id}/words/{key}", send_words)
-    app.router.add_delete("/api/books/{id}", drop_book)
+    app.router.add_get("/api/settings", get_settings)
+    app.router.add_put("/api/settings", put_settings)
+    app.router.add_get("/api/cache/stats", cache_stats)
+    app.router.add_delete("/api/cache", cache_clear)
+    app.router.add_post("/api/tts/audio", speak)
+    app.router.add_post("/api/tts/words", speak_words)
+    app.router.add_post("/api/tts/prefetch", prefetch)
     if DIST.joinpath("index.html").exists():
         app.router.add_static("/assets", DIST / "assets", show_index=False)
         app.router.add_get("/{tail:.*}", index_page)

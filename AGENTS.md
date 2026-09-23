@@ -1,29 +1,33 @@
 # AGENTS.md
 
-## Status
+EPUB reader + read-aloud. Books live in browser IndexedDB (gated on `persist()`); backend is TTS-only, stateless. Verified 2026-09-24, no git history.
 
-EPUB reader + read-aloud app (verified 2026-09-23). No git history yet.
+## Commands (`just` is truth; don't invent)
 
-## Commands (via `just`)
+- `setup` (uv sync + bun install) · `server` :8000 · `web` :5173 (proxies /api) · `dev` both
+- `build` (vue-tsc + vite → frontend/dist, served by backend) · `check` (compileall + pytest + build) · `e2e` (playwright chromium highlighter tests; first time: `bun x playwright install chromium`)
 
-- `just setup` — `uv sync --group dev` + `bun install` in `frontend/`
-- `just server` — backend API on `:8000`; `just web` — vite dev on `:5173` (proxies `/api`); `just dev` — both
-- `just build` — frontend typecheck (`vue-tsc`) + production build into `frontend/dist` (backend serves it statically)
-- `just check` — `compileall` + `pytest` + frontend build
+## Backend (`backend/`, uv, aiohttp + edge-tts + platformdirs)
 
-## Facts
+- `server.py`: `GET /api/health|settings|cache/stats`, `PUT /api/settings`, `DELETE /api/cache`, `POST /api/tts/audio|words {text}`, `POST /api/tts/prefetch {texts}` (202, max 20). TTS fail → 502. `PORT` overrides 8000.
+- `voice.py`: shared disk LRU keyed `sha1(voice+text)`; `settings.py`: validated JSON (`cache_mb` 10-2000, `readahead` 0-10, voice str).
+- Dirs: `~/.cache/reader/tts`, `~/.config/reader/settings.json` (Linux; platformdirs elsewhere).
 
-- EPUB only. PDFs were dropped deliberately (pending a highlighting strategy); `books.py` rejects non-EPUB uploads. No markitdown, no `marked`.
-- Backend package is `backend/`: `server.py` (routes), `books.py` (raw file store), `text.py` (per-format sentence interface), `voice.py` (edge-tts), `store.py` (paths). `PORT` env overrides 8000.
-- Text interface: `text.SOURCES` maps format -> object with `chapters(raw)`. New formats only touch `text.py`. Sentences cached at `storage/cache/{id}/sentences.json`; keys look like `00-0003` (chapter-sentence).
-- TTS: `voice.ensure_audio(book, key)` returns cached-or-generated MP3 path + `[{text, start_ms, end_ms}]` (edge-tts `WordBoundary`, 100ns ticks // 10000). First generation needs internet; failures surface as HTTP 502. Default voice `en-US-AriaNeural` in `voice.py`.
-- API: `GET /api/health`, `GET/POST /api/books`, `GET /api/books/{id}`, `GET /api/books/{id}/file` (raw epub), `GET /api/books/{id}/sentences`, `GET /api/books/{id}/audio/{key}` (mp3), `GET /api/books/{id}/words/{key}`, `DELETE /api/books/{id}`. Upload field is `file`; 100 MB cap.
-- Frontend (`frontend/`, bun, TypeScript with `<script setup lang="ts">`, Bootstrap for all styling — no custom CSS except TOC drawer, highlight colors + reader height in `App.vue`): `EpubView` from `vue-reader` (CSS `vue-reader/lib/index.css`), raw rendition kept `markRaw` in `store/reader.ts`. `Reader.vue` passes `:epub-init-options="{ openAs: 'epub' }"` — epub.js sniffs the book type from the URL extension, and our extensionless `/file` route is misread as an unpacked directory (fetches `META-INF/container.xml`, gets index.html, dies with an XML parse error). Reader chrome is custom around `EpubView` (template ref `nextPage`/`prevPage`/`setLocation`): `ReaderBar` (TOC, page turn, Pages/Scroll flow via `:key` remount keeping `:location` CFI, font scale, theme), `TocDrawer` (Bootstrap-style manual offcanvas from `tocChanged`), page theme/font/highlight CSS painted per chapter in `rendition.hooks.content`. Our code only depends on the narrow `BookRendition` surface in `src/types.ts`, never the epubjs `Rendition` class type (structurally brittle). TypeScript is pinned to v5 (`vue-tsc` breaks on v7). Vite `server.host` is pinned to `127.0.0.1` (bare vite binds `::1` only, so `127.0.0.1:5173` refuses connections). Playback lives in `store/player.ts` (single module-scope `Audio`, run counter drops stale fetches).
-- Sentence->screen mapping (`src/tts/locate.ts`): backend text matched against chapter DOM on whitespace-collapsed copies with a raw-offset back-map; unfound words are skipped, never misaligned. Highlight CSS is injected per chapter via `rendition.hooks.content` (app CSS can't reach the book iframes); viewer needs the sized `.reader-frame` parent (`height: 100%` inside). EpubView's root (`.reader`) is `position: absolute` with a 50px inset — `.reader-frame` must be `position: relative` and neutralize it (`.reader-frame > div.reader { inset: 0 }`), or the book positions against the viewport. Arrow keys inside the book are owned by us (`keydown` attached per chapter in the same content hook; `:enable-key="false"` on EpubView to avoid double flips) — iframe events never reach the top window, and the library's own keyup listener is unreliable.
-- Tests: `tests/test_books.py`, `tests/test_text.py` (offline-safe; TTS service never touched). `flat`/`wordSpans` verified via `bun -e`.
+## Frontend (`frontend/`, bun, TS `<script setup>`, Bootstrap; custom CSS only App.vue)
+
+- `db.ts` (IDB v2: `books` + `marks` with `bookId` index), `text/epub.ts` (zip→sentences, keys `00-0003`; chapters parsed as lenient HTML, splitter regex-dumb on purpose), `api/voice|settings`, `store/reader|player|sidecar` (player: module-scope `Audio` with lookahead queue, run + play tokens drop stale work, rAF word sync), `tts/locate.ts` (sentence→DOM via whitespace-collapsed back-map incl. whitespace-only nodes; words painted via live-DOM search inside the sentence element so paint-splits can't drift; skips unfound words, prefix fallback when the tail differs), `theme.ts` (`data-theme` + `data-bs-theme` on `<html>`, 4 themes incl. monokai).
+- Views: `Library`, `Reader` (no Settings route — settings live in the sidecar). Components: `TopBar`, `BookCard`, `ReaderBar`, `Sidecar` (toc/marks/settings tabs + collapse rail), `TocList`, `BookmarksPanel`, `SettingsPanel`, `StorageGate`.
+- Reader: `EpubView` + custom chrome; depend only on `BookRendition` (`types.ts`: display/prev/next/resize/getContents/hooks/on/off, `book.locations` + `book.spine`), never epubjs `Rendition` class. Gotchas: `openAs:'binary'` (ArrayBuffer input; `'epub'` would fetch `"[object ArrayBuffer]"`); `.reader-frame` must be `relative` + neutralize EpubView's absolute `.reader` inset; iframe keys + wheel owned by us (`enable-key=false`, `enable-wheel=false`); location state (cfi/href/spine) comes from our own `relocated` listener — vue-reader's `update:location` carries only the CFI string; highlight CSS injected per chapter via `hooks.content`; chrome is static in-flow edges (top ReaderBar with `p / N · chapter`, bottom scrub row: prev/next, slider, play, count); a ResizeObserver re-measures the rendition on frame size changes.
+- Player: read-aloud starts at the current chapter (`firstAudible`; exact-page CFI seek is a queued follow-up); `ensureSentenceDoc` displays once per chapter then pages forward until the sentence is visible (same-page sentences never redisplay); client-side playback speed (`rate`, localStorage, pitch preserved); auto-scroll defaults off (Settings); AbortError from a paused/interrupted load is never a UI error (retry once).
+- Wheel: the book is one continuous scroll; edge-overscroll advances chapters (9 ticks + 120px, jitter deadband, 800ms cooldown, suppressed at book ends) with an `over-ind` pill; chapter edge = iframe-rect vs `.epub-container`-rect visibility (never scroll offsets); direction is a `reader.wheel` setting (Normal/Inverted, localStorage).
+- Scrub row: floating-ui thumb popup + TOC chapter markers (spine→first-location, one per page) with floating-ui tooltips; text selection shows a floating-ui popup (bookmark / read-from-here / copy); bookmarks jump + flash via `BookmarksPanel`.
+- Deps: `@floating-ui/dom` (all floating UI), TS pinned v5 (vue-tsc breaks on v7); vite host `127.0.0.1` (bare vite binds `::1` only).
+
+## Tests
+
+`test_settings.py`, `test_voice.py` — offline-safe, TTS never touched.
+`frontend/e2e/` — playwright chromium (`just e2e`, boots vite dev itself): `highlight.spec.ts` (locate.ts sentence/word paints), `player.spec.ts` (`ensureSentenceDoc` display/page-turn via a fake rendition), `selection.spec.ts` (read-from-here DOM-position resolution), `settings.spec.ts` (Ava-default voices, per-theme highlight CSS, playback rate clamp/persist/apply).
 
 ## Guidance
 
-- Do not invent build/test/lint commands — the `just` recipes are the source of truth.
-- Keep code beginner-simple: flat modules, short Go-style names, full types on the TS API boundary (`<script setup lang="ts">`).
-- Sentence splitter (`text.split_sentences`) is regex-dumb on purpose; upgrade only if real books mis-split.
+Flat modules, short Go-style names, full types on the TS boundary.

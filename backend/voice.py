@@ -1,53 +1,122 @@
-"""Read-aloud: edge-tts audio + word timings per sentence.
+"""Read-aloud: edge-tts audio + word timings in a shared disk LRU.
 
-Only talks to the ``text.py`` interface, never to a file format, so new
-formats work here for free once they have a text source.
+Keyed by content hash (voice + text), so identical sentences share one
+entry across books and switching voices just misses to fresh entries.
+The byte cap comes from settings and can change at runtime.
 """
+import asyncio
+import hashlib
 import json
+from collections import OrderedDict
 from pathlib import Path
 
-from . import books, text
+from . import settings, store
 
-VOICE = "en-US-AriaNeural"
-
-
-def words_path(book_id: str, key: str) -> Path:
-    return books.audio_dir(book_id) / f"{key}.json"
+MAX_TEXT = 5000
 
 
-def audio_path(book_id: str, key: str) -> Path:
-    return books.audio_dir(book_id) / f"{key}.mp3"
+def key_for(voice: str, text: str) -> str:
+    return hashlib.sha1(f"{voice}\n{text}".encode()).hexdigest()[:40]
 
 
-def find_sentence(book: dict, key: str) -> text.Sentence:
-    """Sentence text for one key. Raises KeyError when missing."""
-    raw = books.raw_path(book)
-    cache = books.text_cache(book["id"])
-    for chapter in text.load_chapters(book["format"], raw, cache):
-        for sent in chapter.sentences:
-            if sent.key == key:
-                return sent
-    raise KeyError(key)
+class Lru:
+    """Bounded MP3 + timings cache on disk. Not per-book, not permanent."""
+
+    def __init__(self, base: Path, max_bytes: int):
+        self.base = base
+        self.max_bytes = max_bytes
+        self.lock = asyncio.Lock()
+        self.sizes: OrderedDict[str, int] = OrderedDict()
+        self._scan()
+
+    def _scan(self):
+        total = 0
+        for mp3 in self.base.glob("*.mp3"):
+            words = mp3.with_suffix(".json")
+            if words.exists():
+                size = mp3.stat().st_size + words.stat().st_size
+                self.sizes[mp3.stem] = size
+                total += size
+        self.bytes = total
+
+    def _paths(self, key: str) -> tuple[Path, Path]:
+        return self.base / f"{key}.mp3", self.base / f"{key}.json"
+
+    async def get(self, key: str) -> tuple[bytes, list] | None:
+        async with self.lock:
+            if key not in self.sizes:
+                return None
+            audio, words_file = self._paths(key)
+            if not audio.exists() or not words_file.exists():
+                self._drop(key)
+                return None
+            self.sizes.move_to_end(key)
+            return audio.read_bytes(), json.loads(words_file.read_text())
+
+    async def put(self, key: str, audio: bytes, words: list) -> None:
+        async with self.lock:
+            self.base.mkdir(parents=True, exist_ok=True)
+            a_path, w_path = self._paths(key)
+            a_path.write_bytes(audio)
+            words_json = json.dumps(words).encode()
+            w_path.write_bytes(words_json)
+            self._add(key, len(audio) + len(words_json))
+            while self.bytes > self.max_bytes and self.sizes:
+                old, _size = self.sizes.popitem(last=False)
+                self.bytes -= _size
+                a_path, w_path = self._paths(old)
+                a_path.unlink(missing_ok=True)
+                w_path.unlink(missing_ok=True)
+
+    def _add(self, key: str, size: int):
+        self.bytes += size - self.sizes.get(key, 0)
+        self.sizes[key] = size
+        self.sizes.move_to_end(key)
+
+    def _drop(self, key: str):
+        size = self.sizes.pop(key, 0)
+        self.bytes -= size
+        a_path, w_path = self._paths(key)
+        a_path.unlink(missing_ok=True)
+        w_path.unlink(missing_ok=True)
+
+    async def trim(self, max_bytes: int) -> None:
+        async with self.lock:
+            self.max_bytes = max_bytes
+            while self.bytes > self.max_bytes and self.sizes:
+                old, _size = self.sizes.popitem(last=False)
+                self.bytes -= _size
+                a_path, w_path = self._paths(old)
+                a_path.unlink(missing_ok=True)
+                w_path.unlink(missing_ok=True)
+
+    async def stats(self) -> dict:
+        async with self.lock:
+            return {"entries": len(self.sizes), "bytes": self.bytes}
+
+    async def clear(self) -> None:
+        async with self.lock:
+            for key in list(self.sizes):
+                a_path, w_path = self._paths(key)
+                a_path.unlink(missing_ok=True)
+                w_path.unlink(missing_ok=True)
+            self.sizes.clear()
+            self.bytes = 0
 
 
-async def ensure_audio(book: dict, key: str) -> tuple[Path, list[dict]]:
-    """MP3 path + word timings for one sentence (cached on disk).
+CACHE = Lru(store.tts_dir(), settings.load()["cache_mb"] * 1024 * 1024)
 
-    Each word: {"text", "start_ms", "end_ms"}.
-    Raises KeyError for unknown keys, RuntimeError when TTS fails.
-    """
-    audio, words_file = audio_path(book["id"], key), words_path(book["id"], key)
-    if audio.exists() and words_file.exists():
-        return audio, json.loads(words_file.read_text())
-    sent = find_sentence(book, key)
+
+async def synth(voice: str, text: str) -> tuple[bytes, list]:
+    """One edge-tts call. Raises RuntimeError when the service fails."""
     try:
         import edge_tts
     except ImportError as err:
         raise RuntimeError("edge-tts is not installed (run: just setup)") from err
     sound = bytearray()
-    words: list[dict] = []
+    words: list = []
     try:
-        talk = edge_tts.Communicate(sent.text, VOICE, boundary="WordBoundary")
+        talk = edge_tts.Communicate(text, voice, boundary="WordBoundary")
         async for msg in talk.stream():
             if msg["type"] == "audio":
                 sound.extend(msg["data"])
@@ -63,7 +132,23 @@ async def ensure_audio(book: dict, key: str) -> tuple[Path, list[dict]]:
         raise RuntimeError(f"speech service failed: {err}") from err
     if not sound:
         raise RuntimeError("speech service returned no audio")
-    books.audio_dir(book["id"]).mkdir(parents=True, exist_ok=True)
-    audio.write_bytes(bytes(sound))
-    words_file.write_text(json.dumps(words))
+    return bytes(sound), words
+
+
+async def ensure(text: str, voice: str = "") -> tuple[bytes, list]:
+    """Audio bytes + word timings for one text (cached)."""
+    text = " ".join(text.split())
+    if not text:
+        raise ValueError("empty text")
+    if len(text) > MAX_TEXT:
+        raise ValueError(f"text too long (max {MAX_TEXT} chars)")
+    cfg = settings.load()
+    voice = voice or cfg["voice"]
+    CACHE.max_bytes = cfg["cache_mb"] * 1024 * 1024
+    key = key_for(voice, text)
+    hit = await CACHE.get(key)
+    if hit is not None:
+        return hit
+    audio, words = await synth(voice, text)
+    await CACHE.put(key, audio, words)
     return audio, words

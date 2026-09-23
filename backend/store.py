@@ -1,15 +1,23 @@
-"""Disk paths and tiny JSON store for books."""
+"""App dirs: system cache for TTS audio, system config for settings.
+
+Linux: ~/.cache/reader + ~/.config/reader. macOS/Windows follow
+platformdirs (~/Library/Caches, %LOCALAPPDATA%). Nothing book-shaped
+lives here; books are stored by the frontend in IndexedDB.
+"""
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-STORAGE = ROOT / "storage"
-UPLOADS = STORAGE / "uploads"
-CACHE = STORAGE / "cache"
-META = STORAGE / "books.json"
+from platformdirs import user_cache_dir, user_config_dir
+
+APP = "reader"
 
 
-def dirs():
-    """Create storage dirs (idempotent)."""
-    UPLOADS.mkdir(parents=True, exist_ok=True)
-    CACHE.mkdir(parents=True, exist_ok=True)
-    return STORAGE
+def tts_dir() -> Path:
+    d = Path(user_cache_dir(APP)) / "tts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def settings_file() -> Path:
+    d = Path(user_config_dir(APP))
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "settings.json"

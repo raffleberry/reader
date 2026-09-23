@@ -1,4 +1,4 @@
-/** Read-aloud API: sentences, per-sentence audio, word timings. */
+/** Read-aloud API: the backend only ever sees plain text. */
 
 export interface Sentence {
   /** Chapter + index, e.g. "00-0003". */
@@ -17,30 +17,46 @@ export interface Word {
   end_ms: number;
 }
 
-interface ChaptersRes {
-  chapters: { sentences: Sentence[] }[];
+async function post(path: string, body: unknown): Promise<Response> {
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
-async function json<T>(res: Response): Promise<T> {
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await post(path, body);
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
   return data;
 }
 
-/** Flat sentence list in reading order. */
-export async function getSentences(id: string): Promise<Sentence[]> {
-  const data = await fetch(`/api/books/${id}/sentences`).then(json<ChaptersRes>);
-  return data.chapters.flatMap((c) => c.sentences);
+/** MP3 for one sentence text, as an object URL. */
+export async function speakAudio(text: string): Promise<string> {
+  const res = await post("/api/tts/audio", { text });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || `audio failed (${res.status})`);
+  }
+  return URL.createObjectURL(await res.blob());
 }
 
-/** MP3 URL for one sentence. */
-export function audioUrl(id: string, key: string): string {
-  return `/api/books/${id}/audio/${key}`;
-}
-
-export async function getWords(id: string, key: string): Promise<Word[]> {
-  const data = await fetch(`/api/books/${id}/words/${key}`).then(
-    json<{ words: Word[] }>,
-  );
+/** Word timings for one sentence text. */
+export async function getWords(text: string): Promise<Word[]> {
+  const data = await postJson<{ words: Word[] }>("/api/tts/words", { text });
   return data.words || [];
+}
+
+/** Warm the server cache ahead of playback. Never throws. */
+export async function prefetch(texts: string[]): Promise<void> {
+  try {
+    await fetch("/api/tts/prefetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texts }),
+    });
+  } catch {
+    // Playback fetches directly; prefetch is best-effort.
+  }
 }

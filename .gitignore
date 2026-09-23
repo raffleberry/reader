@@ -5,6 +5,8 @@ __pycache__/
 dist/
 node_modules/
 frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
 storage/uploads/*
 storage/cache/*
 storage/books.json

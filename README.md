@@ -1,37 +1,42 @@
 # Reader
 
-Local web app to read EPUB books in the browser and listen to them read aloud with word-level highlighting.
+EPUB reader + read-aloud. Books live in the browser (IndexedDB); the server only makes speech.
 
-- Backend: Python + `aiohttp`. Text comes from a small per-format interface (`backend/text.py`); speech from edge-tts (`backend/voice.py`).
-- Frontend: Vue 3 + Pinia, TypeScript (`<script setup lang="ts">`), Bootstrap, managed with `bun`. EPUBs render with `vue-reader` (epub.js). `bun run build` typechecks (`vue-tsc`) then bundles.
+- Backend: Python + `aiohttp`: `POST /api/tts/audio|words|prefetch {text}`, settings + cache API. No book state.
+- Frontend: Vue 3 + Pinia + TypeScript (`<script setup>`), Bootstrap, `bun`. EPUBs render with `vue-reader`.
 - Task runner: `just`. Python deps: `uv`. JS deps: `bun`.
 
 ## Layout
 
 ```text
-backend/    # server.py (routes), books.py (library), text.py (sentence interface),
-            # voice.py (edge-tts audio + word timings), store.py (paths)
-frontend/   # TypeScript: main.ts, router.ts, types.ts, api/, store/ (reader, player),
-            # tts/locate.ts (sentence->DOM mapping), views/ (Library, Reader),
-            # components/ (TopBar, BookCard, ReaderBar, TocDrawer, PlayerBar)
-storage/    # local data: uploads/*.epub, cache/{id}/ (sentences.json, audio/)
-tests/      # pytest, offline-safe
+backend/    # server.py (routes), voice.py (edge-tts + disk LRU),
+            # settings.py (validated JSON), store.py (system dirs)
+frontend/   # main.ts, router.ts, types.ts, theme.ts, db.ts (IndexedDB),
+            # api/ (voice, settings), text/epub.ts (zip->sentences),
+            # tts/locate.ts (sentence->DOM), store/ (reader, player, sidecar),
+            # views/ (Library, Reader), components/ (TopBar, BookCard,
+            # ReaderBar, Sidecar, TocList, BookmarksPanel, SettingsPanel,
+            # StorageGate)
+tests/      # pytest, offline-safe (TTS service never touched)
+frontend/e2e/ # playwright chromium highlighter tests (`just e2e`)
 ```
 
 ## Run
 
 ```sh
 just setup     # install python + js deps
-just dev       # backend :8000 + frontend :5173 (or run separately below)
+just dev       # backend :8000 + frontend :5173
 just server    # backend only  -> http://127.0.0.1:8000
 just web       # frontend only -> http://127.0.0.1:5173
-just build     # production frontend build (served by backend)
-just check     # compile + tests + frontend build
+just build     # vue-tsc + vite build into frontend/dist (served by backend)
+just check     # compileall + pytest + frontend build
+just e2e       # playwright chromium tests for the highlighter
 ```
 
-Upload an `.epub` in the Library view, open it, press **Read aloud**. The current sentence highlights yellow, the spoken word highlights orange, and auto-scroll (toggleable) follows along. Audio + timings are cached under `storage/cache/`, so replay works offline — but the first generation needs internet (edge-tts calls the Microsoft speech service).
+First launch asks for persistent storage (`StorageGate`); the app refuses to run without it. Upload `.epub` files in Library (parsed with JSZip + DOMParser, same `00-0003` sentence keys as before). **Read aloud** highlights the sentence, then each spoken word, with toggleable auto-scroll. The book is one continuous scroll; the mouse wheel advances chapters at the end (direction flippable in Settings).
 
-## Adding a document format later (e.g. PDF)
+Speech cache is a shared content-hashed LRU in the OS cache dir (`~/.cache/reader/tts` on Linux), capped by Settings (default 100 MB); the player pre-generates the next few sentences while you listen. First generation needs internet (edge-tts); replay is offline.
 
-1. Write a class with `chapters(raw) -> list[Chapter]` in `backend/text.py` and register it in `SOURCES`. TTS, caching, and routes work unchanged.
-2. Add a viewer component + sentence locator on the frontend (`src/tts/`), reusing `store/player.js` as-is.
+## Adding a document format later
+
+New `src/text/<fmt>.ts` exporting `parseEpub`-shaped `{title, sentences}`; player/highlighter reuse as-is.
