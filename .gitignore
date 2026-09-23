@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.uv/
+.venv/
+dist/
+node_modules/
+frontend/dist/
+storage/uploads/*
+storage/cache/*
+storage/books.json
+!storage/.gitkeep
+!storage/uploads/.gitkeep
+!storage/cache/.gitkeep
