@@ -5,6 +5,7 @@ __pycache__/
 dist/
 node_modules/
 src/ui/dist/
+src/ui/dist-demo/
 src/ui/test-results/
 src/ui/playwright-report/
 build/
