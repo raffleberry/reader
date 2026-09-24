@@ -1,4 +1,4 @@
-import { markRaw } from "vue";
+import { computed, markRaw, ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import type { NavItem } from "epubjs";
 import { deleteBook, deleteBookMarks, getBook, listBooks } from "../db";
@@ -23,103 +23,134 @@ function storedWheel(): WheelDir {
 }
 
 /** Library (IndexedDB) + open book + raw epub.js handles for the player. */
-export const useReader = defineStore("reader", {
-  state: () => ({
-    books: [] as BookMeta[],
-    current: null as StoredBook | null,
-    /** Raw EPUB bytes for the viewer (never reactive). */
-    data: null as ArrayBuffer | null,
-    sentences: [] as Sentence[],
-    /** Raw epub.js rendition (never reactive). */
-    rendition: null as BookRendition | null,
-    /** Book contents from vue-reader. */
-    toc: [] as NavItem[],
-    /** Last reading position (CFI), restored on reopen. */
-    location: "" as string,
-    /** Current chapter href for the toolbar label. */
-    chapterHref: "" as string,
-    theme: storedTheme() as ThemeName,
-    /** Wheel mapping over the book: normal (down = forward) or inverted. */
-    wheel: storedWheel() as WheelDir,
-    /** % of the publisher's font size. */
-    fontScale: Number(localStorage.getItem(FONT_KEY) || 100),
-    loading: false as boolean,
-    error: "" as string,
-  }),
-  getters: {
-    title(state): string {
-      return state.current?.title || "Reader";
-    },
-    chapterLabel(state): string {
-      const href = (state.chapterHref || "").split("#")[0].split("/").pop();
-      const hit = state.toc.find((t) => t.href.split("#")[0].endsWith(href || ""));
-      return hit?.label || (href ? decodeURIComponent(href) : "");
-    },
-  },
-  actions: {
-    async loadAll(): Promise<void> {
-      this.loading = true;
-      this.error = "";
-      try {
-        this.books = await listBooks();
-      } catch (err) {
-        this.error = (err as Error).message;
-      } finally {
-        this.loading = false;
-      }
-    },
-    async remove(id: string): Promise<void> {
-      await deleteBook(id);
-      await deleteBookMarks(id).catch(() => undefined);
-      this.books = this.books.filter((b) => b.id !== id);
-      if (this.current?.id === id) this.close();
-    },
-    async open(id: string): Promise<void> {
-      this.loading = true;
-      this.error = "";
-      try {
-        const book = await getBook(id);
-        if (!book) throw new Error("book not found");
-        this.current = book;
-        this.data = markRaw(await book.blob.arrayBuffer());
-        this.sentences = book.sentences;
-      } catch (err) {
-        this.error = (err as Error).message;
-      } finally {
-        this.loading = false;
-      }
-    },
-    close(): void {
-      this.current = null;
-      this.data = null;
-      this.sentences = [];
-      this.rendition = null;
-      this.toc = [];
-      this.location = "";
-      this.chapterHref = "";
-    },
-    setRendition(rendition: BookRendition): void {
-      this.rendition = markRaw(rendition);
-    },
-    setToc(toc: NavItem[]): void {
-      this.toc = toc;
-    },
-    /** Location reported by the viewer (CFI + href). */
-    setLocation(cfi: string, href: string): void {
-      if (cfi) this.location = cfi;
-      if (href) this.chapterHref = href;
-    },
-    setTheme(theme: ThemeName): void {
-      this.theme = theme;
-      localStorage.setItem(THEME_KEY, theme);
-    },
-    setWheel(wheel: WheelDir): void {
-      this.wheel = wheel;
-      localStorage.setItem(WHEEL_KEY, wheel);
-    },
-    setFont(scale: number): void {
-      this.fontScale = Math.min(200, Math.max(60, Math.round(scale)));
-      localStorage.setItem(FONT_KEY, String(this.fontScale));
-    },
-  },
+export const useReader = defineStore("reader", () => {
+  const books = ref<BookMeta[]>([]);
+  const current = ref<StoredBook | null>(null);
+  /** Raw EPUB bytes for the viewer (never reactive). */
+  const data = shallowRef<ArrayBuffer | null>(null);
+  const sentences = ref<Sentence[]>([]);
+  /** Raw epub.js rendition (never reactive). */
+  const rendition = shallowRef<BookRendition | null>(null);
+  /** Book contents from vue-reader. */
+  const toc = ref<NavItem[]>([]);
+  /** Last reading position (CFI), restored on reopen. */
+  const location = ref("");
+  /** Current chapter href for the toolbar label. */
+  const chapterHref = ref("");
+  const theme = ref<ThemeName>(storedTheme());
+  /** Wheel mapping over the book: normal (down = forward) or inverted. */
+  const wheel = ref<WheelDir>(storedWheel());
+  /** % of the publisher's font size. */
+  const fontScale = ref(Number(localStorage.getItem(FONT_KEY) || 100));
+  const loading = ref(false);
+  const error = ref("");
+
+  const title = computed(() => current.value?.title || "Reader");
+  const chapterLabel = computed(() => {
+    const href = (chapterHref.value || "").split("#")[0].split("/").pop();
+    const hit = toc.value.find((t) => t.href.split("#")[0].endsWith(href || ""));
+    return hit?.label || (href ? decodeURIComponent(href) : "");
+  });
+
+  async function loadAll(): Promise<void> {
+    loading.value = true;
+    error.value = "";
+    try {
+      books.value = await listBooks();
+    } catch (err) {
+      error.value = (err as Error).message;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function close(): void {
+    current.value = null;
+    data.value = null;
+    sentences.value = [];
+    rendition.value = null;
+    toc.value = [];
+    location.value = "";
+    chapterHref.value = "";
+  }
+
+  async function remove(id: string): Promise<void> {
+    await deleteBook(id);
+    await deleteBookMarks(id).catch(() => undefined);
+    books.value = books.value.filter((b) => b.id !== id);
+    if (current.value?.id === id) close();
+  }
+
+  async function open(id: string): Promise<void> {
+    loading.value = true;
+    error.value = "";
+    try {
+      const book = await getBook(id);
+      if (!book) throw new Error("book not found");
+      current.value = book;
+      data.value = markRaw(await book.blob.arrayBuffer());
+      sentences.value = book.sentences;
+    } catch (err) {
+      error.value = (err as Error).message;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function setRendition(r: BookRendition): void {
+    rendition.value = markRaw(r);
+  }
+
+  function setToc(items: NavItem[]): void {
+    toc.value = items;
+  }
+
+  /** Location reported by the viewer (CFI + href). */
+  function setLocation(cfi: string, href: string): void {
+    if (cfi) location.value = cfi;
+    if (href) chapterHref.value = href;
+  }
+
+  function setTheme(t: ThemeName): void {
+    theme.value = t;
+    localStorage.setItem(THEME_KEY, t);
+  }
+
+  function setWheel(w: WheelDir): void {
+    wheel.value = w;
+    localStorage.setItem(WHEEL_KEY, w);
+  }
+
+  function setFont(scale: number): void {
+    fontScale.value = Math.min(200, Math.max(60, Math.round(scale)));
+    localStorage.setItem(FONT_KEY, String(fontScale.value));
+  }
+
+  return {
+    books,
+    current,
+    data,
+    sentences,
+    rendition,
+    toc,
+    location,
+    chapterHref,
+    theme,
+    wheel,
+    fontScale,
+    loading,
+    error,
+    title,
+    chapterLabel,
+    loadAll,
+    remove,
+    open,
+    close,
+    setRendition,
+    setToc,
+    setLocation,
+    setTheme,
+    setWheel,
+    setFont,
+  };
 });

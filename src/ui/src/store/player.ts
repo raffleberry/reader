@@ -1,3 +1,4 @@
+import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { createPinia, setActivePinia } from "pinia";
 import type { Contents } from "epubjs";
@@ -100,112 +101,113 @@ function readAhead(): number {
  * chapter boundaries don't stall; word highlights follow the element's
  * own clock instead of chained timers, so pause/resume can't drift.
  */
-export const usePlayer = defineStore("player", {
-  state: () => ({
-    phase: "idle" as Phase,
-    pos: 0 as number,
-    error: "" as string,
-    autoScroll: storedScroll() as boolean,
-    rate: storedRate() as number,
-  }),
-  getters: {
-    busy(state): boolean {
-      return state.phase === "playing" || state.phase === "loading";
-    },
-  },
-  actions: {
-    async start(from = 0): Promise<void> {
-      this.hardStop();
-      this.error = "";
-      const at = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
-      await this.playAt(at, ++run);
-    },
-    stop(): void {
-      this.hardStop();
-      this.phase = "idle";
-      this.pos = 0;
-    },
-    pause(): void {
-      if (this.phase !== "playing") return;
-      playToken++;
-      sound.pause();
-      stopWords();
-      this.phase = "paused";
-    },
-    async resume(): Promise<void> {
-      if (this.phase !== "paused") return;
-      this.phase = "playing";
+export const usePlayer = defineStore("player", () => {
+  const phase = ref<Phase>("idle");
+  const pos = ref(0);
+  const error = ref("");
+  const autoScroll = ref(storedScroll());
+  const rate = ref(storedRate());
+
+  const busy = computed(() => phase.value === "playing" || phase.value === "loading");
+
+  function hardStop(): void {
+    run++;
+    playToken++;
+    sound.pause();
+    sound.removeAttribute("src");
+    setActive("");
+    stopWords();
+    clearPaint();
+    clearAhead();
+  }
+
+  /**
+   * Play one sentence, then the next. `myRun` drops stale runs.
+   */
+  async function playAt(i: number, myRun: number): Promise<void> {
+    const reader = useReader();
+    if (i >= reader.sentences.length) {
+      stop();
+      return;
+    }
+    pos.value = i;
+    phase.value = "loading";
+    const sent = reader.sentences[i];
+    try {
+      await showSentence(reader.rendition, sent, autoScroll.value, () => myRun === run);
+      if (myRun !== run) return;
+      const item = await ensureAudio(i, myRun);
+      if (!item || myRun !== run) return;
+      words = item.words;
+      void lookahead(i, myRun);
+      setActive(item.url);
+      phase.value = "playing";
+      sound.onended = () => {
+        if (myRun === run) void playAt(i + 1, myRun);
+      };
+      sound.onerror = () => {
+        if (myRun === run) void playAt(i + 1, myRun);
+      };
       beginWords();
-      try {
-        await playCurrent(run);
-      } catch (err) {
-        stopWords();
-        this.phase = "error";
-        this.error = (err as Error).message;
-      }
-    },
-    toggleScroll(): void {
-      this.autoScroll = !this.autoScroll;
-      localStorage.setItem(SCROLL_KEY, this.autoScroll ? "1" : "0");
-    },
-    setRate(rate: number): void {
-      const r = Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1;
-      this.rate = r;
-      localStorage.setItem(RATE_KEY, String(r));
-      applyRate();
-    },
-
-    /**
-     * Play one sentence, then the next. `myRun` drops stale runs.
-     */
-    async playAt(i: number, myRun: number): Promise<void> {
-      const reader = useReader();
-      if (i >= reader.sentences.length) {
-        this.stop();
-        return;
-      }
-      this.pos = i;
-      this.phase = "loading";
-      const sent = reader.sentences[i];
-      try {
-        await showSentence(reader.rendition, sent, this.autoScroll, () => myRun === run);
-        if (myRun !== run) return;
-        const item = await ensureAudio(i, myRun);
-        if (!item || myRun !== run) return;
-        words = item.words;
-        void lookahead(i, myRun);
-        setActive(item.url);
-        this.phase = "playing";
-        sound.onended = () => {
-          if (myRun === run) void this.playAt(i + 1, myRun);
-        };
-        sound.onerror = () => {
-          if (myRun === run) void this.playAt(i + 1, myRun);
-        };
-        beginWords();
-        await playCurrent(myRun);
-      } catch (err) {
-        if (myRun !== run) return;
-        stopWords();
-        // Paused mid-load: the pending play() rejects with AbortError, but
-        // that is an intentional pause, not a playback failure.
-        if (currentPhase(this) === "paused") return;
-        this.phase = "error";
-        this.error = (err as Error).message;
-      }
-    },
-
-    hardStop(): void {
-      run++;
-      playToken++;
-      sound.pause();
-      sound.removeAttribute("src");
-      setActive("");
+      await playCurrent(myRun);
+    } catch (err) {
+      if (myRun !== run) return;
       stopWords();
-      clearPaint();
-      clearAhead();
-    },
-  },
+      // Paused mid-load: the pending play() rejects with AbortError, but
+      // that is an intentional pause, not a playback failure.
+      if ((phase.value as Phase) === "paused") return;
+      phase.value = "error";
+      error.value = (err as Error).message;
+    }
+  }
+
+  async function start(from = 0): Promise<void> {
+    hardStop();
+    error.value = "";
+    const at = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
+    await playAt(at, ++run);
+  }
+
+  function stop(): void {
+    hardStop();
+    phase.value = "idle";
+    pos.value = 0;
+  }
+
+  function pause(): void {
+    if (phase.value !== "playing") return;
+    playToken++;
+    sound.pause();
+    stopWords();
+    phase.value = "paused";
+  }
+
+  async function resume(): Promise<void> {
+    if (phase.value !== "paused") return;
+    phase.value = "playing";
+    beginWords();
+    try {
+      await playCurrent(run);
+    } catch (err) {
+      stopWords();
+      phase.value = "error";
+      error.value = (err as Error).message;
+    }
+  }
+
+  function toggleScroll(): void {
+    autoScroll.value = !autoScroll.value;
+    localStorage.setItem(SCROLL_KEY, autoScroll.value ? "1" : "0");
+  }
+
+  function setRate(r: number): void {
+    const next = Number.isFinite(r) ? Math.min(2, Math.max(0.5, r)) : 1;
+    rate.value = next;
+    localStorage.setItem(RATE_KEY, String(next));
+    applyRate();
+  }
+
+  return { phase, pos, error, autoScroll, rate, busy, start, stop, pause, resume, toggleScroll, setRate, playAt, hardStop };
 });
 
 /** Assign audio to the element, revoking whatever it replaces. */
