@@ -1,5 +1,6 @@
 <template>
-  <StorageGate v-if="!open" @ready="open = true" />
+  <StorageGate v-if="!open" @ready="onReady" />
+  <div v-else-if="seeding" class="seed-note">Preparing your starter library…</div>
   <div v-else class="app-shell">
     <div v-if="IS_DEMO && offline" class="offline-pill" role="status">
       You're offline — reading still works. Read-aloud needs the downloaded app anyway.
@@ -16,11 +17,13 @@ import { onMounted, onUnmounted, ref, watch } from "vue";
 import { useReader } from "./store/reader";
 import { applyAppTheme } from "./theme";
 import { IS_DEMO } from "./demo";
+import { ensureSeedBooks } from "./library/seed";
 import Sidecar from "./components/Sidecar.vue";
 import StorageGate from "./components/StorageGate.vue";
 
 const reader = useReader();
 const open = ref(false);
+const seeding = ref(false);
 const offline = ref(typeof navigator !== "undefined" ? !navigator.onLine : false);
 
 function markOnline(): void {
@@ -36,11 +39,24 @@ onMounted(async () => {
   window.addEventListener("online", markOnline);
   window.addEventListener("offline", markOffline);
   try {
-    if (await navigator.storage.persisted()) open.value = true;
+    if (await navigator.storage.persisted()) await onReady();
   } catch {
     open.value = false;
   }
 });
+
+/** StorageGate (or the persisted fast-path) says books are safe to keep. */
+async function onReady(): Promise<void> {
+  if (IS_DEMO) {
+    seeding.value = true;
+    try {
+      await ensureSeedBooks();
+    } finally {
+      seeding.value = false;
+    }
+  }
+  open.value = true;
+}
 
 onUnmounted(() => {
   window.removeEventListener("online", markOnline);
@@ -336,7 +352,23 @@ body {
   text-align: right;
 }
 
+/* Demo first-run notice while the bundled books copy into the library. */
+.seed-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100dvh;
+  color: var(--bs-secondary-color);
+}
+
 /* App shell: sidecar + main column. */
+.seed-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100dvh;
+  color: var(--bs-secondary-color);
+}
 .app-shell {
   display: flex;
   height: 100dvh;
