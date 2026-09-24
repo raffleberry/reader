@@ -26,6 +26,11 @@ dev:
 build:
     cd src/ui && bun run build
 
+# Static demo build (no backend: read-aloud + server settings disabled with
+# download hints). Output: src/ui/dist-demo, hostable as a static page.
+demo:
+    cd src/ui && bun run build:demo
+
 # Quick verification: python compile + unit tests + UI build.
 check:
     uv run python -m compileall src tests

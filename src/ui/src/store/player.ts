@@ -7,6 +7,7 @@ import type { Sentence, Word } from "../api/voice";
 import { paintSentence, paintWord } from "../tts/locate";
 import type { PaintedSentence } from "../tts/locate";
 import { useReader } from "./reader";
+import { DEMO_TTS_MESSAGE, IS_DEMO } from "../demo";
 import type { BookRendition } from "../types";
 
 const SENT_CLS = "tts-sent";
@@ -162,6 +163,12 @@ export const usePlayer = defineStore("player", () => {
   }
 
   async function start(from = 0): Promise<void> {
+    if (IS_DEMO) {
+      hardStop();
+      phase.value = "error";
+      error.value = DEMO_TTS_MESSAGE;
+      return;
+    }
     hardStop();
     error.value = "";
     const at = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;

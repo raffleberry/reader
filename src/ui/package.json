@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:demo": "VITE_DEMO=1 vue-tsc --noEmit && VITE_DEMO=1 vite build --base ./ --outDir dist-demo --emptyOutDir",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "e2e": "playwright test"

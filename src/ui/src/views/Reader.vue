@@ -11,6 +11,11 @@
     </div>
 
     <div ref="frameEl" class="reader-frame">
+      <div v-if="IS_DEMO" class="alert alert-info m-3">
+        You're trying the online demo — reading works fully, but read-aloud is disabled.
+        <a :href="RELEASE_URL" target="_blank" rel="noopener">Download the free app</a>
+        to listen to your books.
+      </div>
       <div v-if="reader.loading" class="alert alert-info m-3">Loading book…</div>
       <div v-else-if="reader.error" class="alert alert-danger m-3">{{ reader.error }}</div>
       <EpubView
@@ -41,6 +46,7 @@
     <div class="edge edge-bottom">
       <div v-if="player.phase === 'error'" class="player-error" role="alert">
         {{ player.error }}
+        <a v-if="IS_DEMO" :href="RELEASE_URL" target="_blank" rel="noopener">Download the free app</a>
       </div>
       <div class="scrub-row">
         <div class="page-group">
@@ -84,7 +90,7 @@
           <button
             v-if="!player.busy"
             class="btn btn-success btn-sm"
-            title="Read aloud"
+            :title="IS_DEMO ? 'Read-aloud needs the downloaded app' : 'Read aloud'"
             :disabled="!canPlay"
             @click="play"
           >
@@ -134,7 +140,7 @@
       <button class="btn btn-sm btn-outline-secondary" title="Bookmark this passage" @click="markSel">
         🔖
       </button>
-      <button class="btn btn-sm btn-success" title="Read aloud from here" @click="readFromHere">
+      <button v-if="!IS_DEMO" class="btn btn-sm btn-success" title="Read aloud from here" @click="readFromHere">
         ▶
       </button>
       <button class="btn btn-sm btn-outline-secondary" title="Copy" @click="copySel">
@@ -161,6 +167,7 @@ import { contentHook } from "../types";
 import type { BookRendition, RelocatedLocation } from "../types";
 import ReaderBar from "../components/ReaderBar.vue";
 import { useSidecar } from "../store/sidecar";
+import { IS_DEMO, RELEASE_URL } from "../demo";
 
 interface EpubViewApi {
   nextPage(): void;

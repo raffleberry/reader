@@ -1,5 +1,9 @@
 <template>
   <div>
+    <div v-if="IS_DEMO" class="alert alert-info">
+      Online demo: reading settings work, but voice and speech-cache settings need the app.
+      <a :href="RELEASE_URL" target="_blank" rel="noopener">Download it free</a>.
+    </div>
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-if="saved" class="alert alert-success">Saved.</div>
 
@@ -20,7 +24,7 @@
       >
         <option v-for="r in RATES" :key="r" :value="r">{{ r }}×</option>
       </select>
-      <div class="form-text">Client-side speed, pitch preserved. Applies immediately.</div>
+      <div class="form-text">Client-side speed, pitch preserved. Applies immediately.{{ IS_DEMO ? " Works in the demo." : "" }}</div>
     </div>
     <div class="mb-3">
       <label class="form-label" for="sidecar-theme">Theme</label>
@@ -45,8 +49,8 @@
     </div>
     <div class="mb-3">
       <label class="form-label" for="sidecar-cache">Speech cache size (MB)</label>
-      <input id="sidecar-cache" v-model.number="cacheMb" type="number" min="10" max="2000" class="form-control" />
-      <div class="form-text">Shared across books, oldest first out. Currently {{ statsText }}.</div>
+      <input id="sidecar-cache" v-model.number="cacheMb" type="number" min="10" max="2000" class="form-control" :disabled="IS_DEMO" />
+      <div class="form-text">{{ IS_DEMO ? "Needs the downloaded app." : "Shared across books, oldest first out. Currently " + statsText + "." }}</div>
     </div>
     <div class="mb-3">
       <label class="form-label" for="sidecar-ahead">Read-ahead sentences</label>
@@ -80,10 +84,10 @@
       <div class="form-text">Keep the sentence being read in view while reading aloud.</div>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-primary" :disabled="busy" @click="save">
+      <button class="btn btn-primary" :disabled="busy || IS_DEMO" :title="IS_DEMO ? 'Needs the downloaded app' : undefined" @click="save">
         {{ busy ? "Saving…" : "Save" }}
       </button>
-      <button class="btn btn-outline-danger" :disabled="busy" @click="wipe">
+      <button class="btn btn-outline-danger" :disabled="busy || IS_DEMO" :title="IS_DEMO ? 'Needs the downloaded app' : undefined" @click="wipe">
         Clear speech cache
       </button>
     </div>
@@ -102,6 +106,7 @@ import {
 import { useReader } from "../store/reader";
 import type { ThemeName } from "../store/reader";
 import { RATES, usePlayer } from "../store/player";
+import { IS_DEMO, RELEASE_URL } from "../demo";
 
 const AHEAD_KEY = "reader.readahead";
 const VOICE_KEY = "reader.voice";
@@ -122,6 +127,10 @@ function fmtBytes(n: number): string {
 }
 
 async function refreshStats(): Promise<void> {
+  if (IS_DEMO) {
+    statsText.value = "demo";
+    return;
+  }
   try {
     const s = await cacheStats();
     statsText.value = `${s.entries} entries, ${fmtBytes(s.bytes)}`;
@@ -143,6 +152,12 @@ function onTheme(value: string): void {
 onMounted(async () => {
   const cached = localStorage.getItem(VOICE_KEY);
   if (cached && VOICES.includes(cached)) voice.value = cached;
+  if (IS_DEMO) {
+    const n = Number(localStorage.getItem(AHEAD_KEY) || 3);
+    if (Number.isFinite(n)) ahead.value = n;
+    await refreshStats();
+    return;
+  }
   try {
     const s = await getSettings();
     voice.value = VOICES.includes(s.voice) ? s.voice : VOICES[0];

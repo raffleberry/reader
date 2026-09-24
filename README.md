@@ -1,44 +1,50 @@
-# Reader
+# Reader — your private EPUB library with read-aloud
 
-EPUB reader + read-aloud. Books live in the browser (IndexedDB); the server only makes speech.
+Reader is a private place for your ebooks. It runs on your own computer, your books stay in your own browser, and nothing you read is ever uploaded, tracked, or synced anywhere. There is no account, no cloud, and no analytics.
 
-- Backend: Python + `aiohttp`: `POST /api/tts/audio|words|prefetch {text}`, settings + cache API. No book state.
-- Frontend: Vue 3 + Pinia + TypeScript (`<script setup>`), Bootstrap, `bun`. EPUBs render with `vue-reader`.
-- Task runner: `just`. Python deps: `uv`. JS deps: `bun`.
+## Get the app
 
-## Layout
+Download the latest version for your computer — no installation needed, just run it:
 
-```text
-src/reader/ # server.py (routes), voice.py (edge-tts + disk LRU),
-            # settings.py (validated JSON), store.py (system dirs),
-            # browser.py (auto-open), paths.py (UI dist lookup)
-src/ui/     # main.ts, router.ts, types.ts, theme.ts, db.ts (IndexedDB),
-            # api/ (voice, settings), text/epub.ts (zip->sentences),
-            # tts/locate.ts (sentence->DOM), store/ (reader, player, sidecar),
-            # views/ (Library, Reader), components/ (TopBar, BookCard,
-            # ReaderBar, Sidecar, TocList, BookmarksPanel, SettingsPanel,
-            # StorageGate)
-tests/      # pytest, offline-safe (TTS service never touched)
-src/ui/e2e/ # playwright chromium highlighter tests (`just e2e`)
-```
+**[Download Reader (Windows / Linux)](https://github.com/raffleberry/reader/releases/latest)**
 
-## Run
+When it starts, Reader opens in your browser automatically. Everything happens on your machine from there.
 
-```sh
-just setup     # install python + js deps
-just dev       # server :8000 + UI :5173
-just server    # server only  -> http://127.0.0.1:8000
-just web       # UI only -> http://127.0.0.1:5173
-just build     # vue-tsc + vite build into src/ui/dist (served by server)
-just check     # compileall + pytest + UI build
-just e2e       # playwright chromium tests for the highlighter
-just package   # portable exe for this OS -> dist/reader(.exe), auto-opens browser
-```
+Just want a quick look? The online demo runs entirely in your browser — reading, themes, bookmarks, and the table of contents all work, but read-aloud needs the downloaded app. Wherever speech would play, the demo points you to the download above.
 
-First launch asks for persistent storage (`StorageGate`); the app refuses to run without it. Upload `.epub` files in Library (parsed with JSZip + DOMParser, same `00-0003` sentence keys as before). **Read aloud** highlights the sentence, then each spoken word, with toggleable auto-scroll. The book is one continuous scroll; the mouse wheel advances chapters at the end (direction flippable in Settings).
+## Your privacy comes first
 
-Speech cache is a shared content-hashed LRU in the OS cache dir (`~/.cache/reader/tts` on Linux), capped by Settings (default 100 MB); the player pre-generates the next few sentences while you listen. First generation needs internet (edge-tts); replay is offline.
+- **Your books stay in your browser.** Uploaded ebooks are stored in your browser's own local database (IndexedDB) on your device. They are never sent to any server.
+- **No account, no tracking.** There is nothing to sign into and nothing phones home.
+- **The server only makes speech.** The small program bundled with the app turns text into spoken audio when you press play. It keeps no record of your books or your reading.
+- **Persistent storage, your call.** On first launch the app asks your permission to keep your library safely stored so the browser doesn't clear it. If you decline, the app won't run — rather than risk silently losing your books.
 
-## Adding a document format later
+## Features
 
-New `src/text/<fmt>.ts` exporting `parseEpub`-shaped `{title, sentences}`; player/highlighter reuse as-is.
+**Your library.** Add `.epub` files from your computer and they appear as cards in your library. Your reading position in each book is remembered, so reopening a book takes you right back to where you left off.
+
+**Comfortable reading.** Books flow as one continuous page you scroll through — there are no fiddly page turns. Four themes (light, sepia, dark, and Monokai) and an adjustable text size let you set up exactly the look that's easy on your eyes, day or night.
+
+**Table of contents.** Jump to any chapter from the sidebar. A progress bar at the bottom always shows where you are in the book, with markers for each chapter that you can hover and click.
+
+**Read-aloud with follow-along highlighting.** Press play and the current chapter is read to you in a natural voice while the spoken sentence — and then each word as it sounds — lights up on the page. Great for accessibility, language learning, or just resting your eyes.
+
+**47 English voices.** Choose the voice you like best, starting with the default (Ava). Speech is generated the first time a sentence is heard and then cached on your computer, so replaying it is instant — and works offline.
+
+**Playback speed.** Listen slower or up to twice as fast without the voice changing pitch, from the Settings panel.
+
+**Read from anywhere.** Select any passage in the book and a small menu lets you start listening from that exact sentence, save it as a bookmark, or copy the text.
+
+**Bookmarks.** Save passages you want to come back to. Each bookmark jumps straight back to its place in the book with a brief flash so you can find it.
+
+**Auto-scroll (optional).** If you like, the page can follow along with the narration automatically. It's off by default — turn it on in Settings.
+
+**Mouse-wheel chapter turning.** Scrolling past the end of a chapter glides into the next one, with a small progress indicator. If the direction feels wrong on your mouse, flip it in Settings.
+
+## A note on speech
+
+Turning text into speech uses a free online voice service the first time each sentence is heard, so that first listen needs internet. After that, the audio is saved in a cache on your computer (up to 100 MB by default, adjustable in Settings) and replays fully offline.
+
+## Help and source code
+
+Reader is open source. If something isn't working or you have an idea, please [open an issue](https://github.com/raffleberry/reader/issues). If you'd like to build it yourself or contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).

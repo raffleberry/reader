@@ -1,6 +1,9 @@
 <template>
   <StorageGate v-if="!open" @ready="open = true" />
   <div v-else class="app-shell">
+    <div v-if="IS_DEMO && offline" class="offline-pill" role="status">
+      You're offline — reading still works. Read-aloud needs the downloaded app anyway.
+    </div>
     <Sidecar />
     <div class="app-main">
       <RouterView />
@@ -9,22 +12,39 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { useReader } from "./store/reader";
 import { applyAppTheme } from "./theme";
+import { IS_DEMO } from "./demo";
 import Sidecar from "./components/Sidecar.vue";
 import StorageGate from "./components/StorageGate.vue";
 
 const reader = useReader();
 const open = ref(false);
+const offline = ref(typeof navigator !== "undefined" ? !navigator.onLine : false);
+
+function markOnline(): void {
+  offline.value = false;
+}
+
+function markOffline(): void {
+  offline.value = true;
+}
 
 onMounted(async () => {
   applyAppTheme(reader.theme);
+  window.addEventListener("online", markOnline);
+  window.addEventListener("offline", markOffline);
   try {
     if (await navigator.storage.persisted()) open.value = true;
   } catch {
     open.value = false;
   }
+});
+
+onUnmounted(() => {
+  window.removeEventListener("online", markOnline);
+  window.removeEventListener("offline", markOffline);
 });
 
 watch(
@@ -321,6 +341,24 @@ body {
   display: flex;
   height: 100dvh;
   overflow: hidden;
+}
+/* Demo offline notice: floats above everything, reading keeps working. */
+.offline-pill {
+  position: fixed;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  background: #212529;
+  color: #fff;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  max-width: 92vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .app-main {
   flex: 1 1 auto;
