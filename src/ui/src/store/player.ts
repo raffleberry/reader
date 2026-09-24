@@ -108,7 +108,7 @@ export const usePlayer = defineStore("player", () => {
   const autoScroll = ref(storedScroll());
   const rate = ref(storedRate());
 
-  const busy = computed(() => phase.value === "playing" || phase.value === "loading");
+  const busy = computed(() => phase.value === "playing" || phase.value === "loading" || phase.value === "paused");
 
   function hardStop(): void {
     run++;
