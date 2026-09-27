@@ -1,5 +1,5 @@
-/** Read-aloud API: the backend only ever sees plain text. */
-import { DEMO_TTS_MESSAGE, IS_DEMO } from "../demo";
+/** Read-aloud API: the server only ever sees plain text. */
+import { api, reportDown, ServerDown } from "../ext/serve";
 
 export interface Sentence {
   /** Chapter + index, e.g. "00-0003". */
@@ -19,48 +19,37 @@ export interface Word {
 }
 
 async function post(path: string, body: unknown): Promise<Response> {
-  return fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  try {
+    return await fetch(api(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // A refused connection or a timeout is the server not being there, and
+    // the reader deserves to be told exactly that.
+    reportDown();
+    throw new ServerDown();
+  }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await post(path, body);
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
-  return data;
+/** The server's own complaint, or a plain HTTP failure. */
+async function failure(res: Response): Promise<Error> {
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  return new Error(data.error || `request failed (${res.status})`);
 }
 
 /** MP3 for one sentence text, as an object URL. */
 export async function speakAudio(text: string): Promise<string> {
-  if (IS_DEMO) throw new Error(DEMO_TTS_MESSAGE);
   const res = await post("/api/tts/audio", { text });
-  if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error || `audio failed (${res.status})`);
-  }
+  if (!res.ok) throw await failure(res);
   return URL.createObjectURL(await res.blob());
 }
 
 /** Word timings for one sentence text. */
 export async function getWords(text: string): Promise<Word[]> {
-  if (IS_DEMO) throw new Error(DEMO_TTS_MESSAGE);
-  const data = await postJson<{ words: Word[] }>("/api/tts/words", { text });
+  const res = await post("/api/tts/words", { text });
+  if (!res.ok) throw await failure(res);
+  const data = (await res.json().catch(() => ({}))) as { words?: Word[] };
   return data.words || [];
-}
-
-/** Warm the server cache ahead of playback. Never throws. */
-export async function prefetch(texts: string[]): Promise<void> {
-  if (IS_DEMO) return;
-  try {
-    await fetch("/api/tts/prefetch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ texts }),
-    });
-  } catch {
-    // Playback fetches directly; prefetch is best-effort.
-  }
 }

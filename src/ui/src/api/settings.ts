@@ -1,4 +1,5 @@
-/** Backend settings + TTS cache controls. */
+/** Server settings + speech-cache controls, against the configured server. */
+import { api, reportDown, ServerDown } from "../ext/serve";
 
 export interface Settings {
   cache_mb: number;
@@ -68,12 +69,22 @@ async function json<T>(res: Response): Promise<T> {
   return data;
 }
 
+/** Run a request, turning "nothing is listening" into the one clear error. */
+async function call(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(api(path), init);
+  } catch {
+    reportDown();
+    throw new ServerDown();
+  }
+}
+
 export function getSettings(): Promise<Settings> {
-  return fetch("/api/settings").then(json<Settings>);
+  return call("/api/settings").then(json<Settings>);
 }
 
 export async function putSettings(patch: Partial<Settings>): Promise<Settings> {
-  const res = await fetch("/api/settings", {
+  const res = await call("/api/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -82,9 +93,9 @@ export async function putSettings(patch: Partial<Settings>): Promise<Settings> {
 }
 
 export function cacheStats(): Promise<CacheStats> {
-  return fetch("/api/cache/stats").then(json<CacheStats>);
+  return call("/api/cache/stats").then(json<CacheStats>);
 }
 
 export async function clearCache(): Promise<void> {
-  await fetch("/api/cache", { method: "DELETE" }).then(json<unknown>);
+  await call("/api/cache", { method: "DELETE" }).then(json<unknown>);
 }

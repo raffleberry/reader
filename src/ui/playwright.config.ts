@@ -1,20 +1,30 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Browser tests for the read-aloud highlighter (tts/locate.ts +
-// store/player.ts). Specs drive the real source modules through the vite dev
-// server, so no build step or fixture app is needed.
+/**
+ * End-to-end tests against the *built* extension: Chromium is launched with
+ * the unpacked MV3 output loaded, so these exercise the real manifest, the
+ * real content-security policy, and the real reader page — not a dev server.
+ *
+ * The pure logic (highlighter, navigation, storage) is covered by the much
+ * faster vitest suite in test/.
+ */
+const EXT = ".output/chrome-mv3";
+
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  fullyParallel: false,
   reporter: "list",
+  timeout: 45_000,
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    ...devices["Desktop Chrome"],
   },
-  webServer: {
-    command: "bun run dev",
-    url: "http://127.0.0.1:5173",
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "extension",
+      use: { channel: "chromium" },
+    },
+  ],
+  globalSetup: "./e2e/build.ts",
 });
+
+export { EXT };

@@ -1,50 +1,101 @@
-# Reader — your private EPUB library with read-aloud
+# Reader — read your EPUB books aloud, in your browser
 
-Reader is a private place for your ebooks. It runs on your own computer, your books stay in your own browser, and nothing you read is ever uploaded, tracked, or synced anywhere. There is no account, no cloud, and no analytics.
+Reader is a browser extension that opens an `.epub` from your computer, lets
+you read it comfortably, and reads it to you out loud with word-by-word
+highlighting. Speech is made by a small program running on your own machine —
+Reader is the only thing that ever sees your books, and it forgets them the
+moment you close the tab.
 
-## Get the app
+## Get Reader
 
-Download the latest version for your computer — no installation needed, just run it:
+1. **Install the extension.** Download the archive for your browser from the
+   [releases page](https://github.com/raffleberry/reader/releases/latest) and
+   load it:
+   - **Chrome / Edge / Brave / Arc** — `chrome://extensions` → *Developer mode*
+     on → *Load unpacked* (or drag the `.zip`'s contents there).
+   - **Firefox** — `about:debugging` → *This Firefox* → *Load Temporary
+     Add-on* → pick `manifest.json` from the extracted `.zip`.
+2. **Download the speech server** from the same page (Windows or Linux). It is
+   one file, no installation. Start it and leave it running while you listen.
+   It prints something like:
+   ```
+   Reader speech server 1.0.0 on http://127.0.0.1:8000
+   The Reader extension finds it on its own. Ctrl-C to stop.
+   ```
+3. **Click Reader's toolbar button.** It opens a reader tab; choose an `.epub`
+   and start reading.
 
-**[Download Reader (Windows / Linux)](https://github.com/raffleberry/reader/releases/latest)**
-
-When it starts, Reader opens in your browser automatically. Everything happens on your machine from there.
-
-Just want a quick look? The online demo runs entirely in your browser — reading, themes, bookmarks, and the table of contents all work, but read-aloud needs the downloaded app. Wherever speech would play, the demo points you to the download above.
+Reading works without the server. Only read-aloud needs it, and if it isn't
+running Reader says so plainly — with a link to download it — wherever you
+would have expected to hear something.
 
 ## Your privacy comes first
 
-- **Your books stay in your browser.** Uploaded ebooks are stored in your browser's own local database (IndexedDB) on your device. They are never sent to any server.
-- **No account, no tracking.** There is nothing to sign into and nothing phones home.
-- **The server only makes speech.** The small program bundled with the app turns text into spoken audio when you press play. It keeps no record of your books or your reading.
-- **Persistent storage, your call.** On first launch the app asks your permission to keep your library safely stored so the browser doesn't clear it. If you decline, the app won't run — rather than risk silently losing your books.
+- **Your books are never stored.** Not in the extension, not in your browser's
+  database, not on disk. The file you pick is read into memory, read, and gone
+  when you close the tab.
+- **One small note is kept**, per book: the page you stopped on, the chapter,
+  and the sentence being read — about 150 bytes, so Reader can put you back
+  exactly where you were. No text, no cover, no file contents.
+- **Bookmarks are the one text you keep**, and only the lines you marked
+  yourself: a short excerpt, so the list still means something with the book
+  closed, plus the sentence it points at. Deleting a book from the start screen
+  deletes its bookmarks with it.
+- **No account, no tracking, no analytics.** There is nothing to sign into and
+  nothing phones home.
+- **The server only makes speech.** It receives the sentence being read, and
+  nothing else: no book, no filename, no reading history. It keeps a cache of
+  generated audio on your machine so a sentence is only ever spoken once.
+- **Nothing else can use it.** The server only answers web extensions, so a
+  random website can't spend your speech or read your cache.
 
 ## Features
 
-**Your library.** Add `.epub` files from your computer and they appear as cards in your library. Your reading position in each book is remembered, so reopening a book takes you right back to where you left off.
+**Open a book, forget it.** Choose an `.epub` (or drop it on the page). The
+whole book opens as **one long scroll** — no page turns, and scrolling never
+stops at a chapter edge — and it is never written anywhere.
 
-**Comfortable reading.** Books flow as one continuous page you scroll through — there are no fiddly page turns. Four themes (light, sepia, dark, and Monokai) and an adjustable text size let you set up exactly the look that's easy on your eyes, day or night.
+**Pick up where you stopped.** Choose the same file again and Reader returns you
+to the page, and pressing play continues from the sentence the voice was on, not
+the top of the chapter. The start screen keeps a *recently read* list — the
+chapter, how far you got, and how many bookmarks you left in each book. Reader
+holds no copy of those books, so there is nothing to open from there: the list is
+a record, and the only thing it can do is forget.
 
-**Table of contents.** Jump to any chapter from the sidebar. A progress bar at the bottom always shows where you are in the book, with markers for each chapter that you can hover and click.
+**Bookmarks.** Select a passage and mark it. The sidebar lists your bookmarks
+for the open book, newest first; click one to jump to it. A bookmark belongs to
+the file, not to the tab, so it is still there the next time you open that book —
+even if you have renamed or moved it — and it goes when you delete the book from
+the start screen.
 
-**Read-aloud with follow-along highlighting.** Press play and the current chapter is read to you in a natural voice while the spoken sentence — and then each word as it sounds — lights up on the page. Great for accessibility, language learning, or just resting your eyes.
+**Comfortable reading.** Four themes (light, sepia, dark, Monokai) and adjustable
+text size. Reader repaints every chapter for the theme you picked — its links
+too, which are otherwise often a blue that disappears on a dark background. A
+progress bar with a marker for every chapter sits along the bottom, and hovering
+a marker tells you which chapter it is.
 
-**47 English voices.** Choose the voice you like best, starting with the default (Ava). Speech is generated the first time a sentence is heard and then cached on your computer, so replaying it is instant — and works offline.
+**Read-aloud with follow-along highlighting.** The chapter is read aloud in a
+natural voice; the sentence lights up, then each word as it is spoken. Select
+any passage and a small menu offers *bookmark*, *read from here* and *copy*.
 
-**Playback speed.** Listen slower or up to twice as fast without the voice changing pitch, from the Settings panel.
+**47 English voices.** Choose the voice you like best, starting with Ava
+(default). Speech is generated the first time a sentence is heard and then
+cached on your computer, so replaying it is instant.
 
-**Read from anywhere.** Select any passage in the book and a small menu lets you start listening from that exact sentence, save it as a bookmark, or copy the text.
+**Playback speed.** Listen at half speed or up to twice as fast without the
+voice changing pitch.
 
-**Bookmarks.** Save passages you want to come back to. Each bookmark jumps straight back to its place in the book with a brief flash so you can find it.
-
-**Auto-scroll (optional).** If you like, the page can follow along with the narration automatically. It's off by default — turn it on in Settings.
-
-**Mouse-wheel chapter turning.** Scrolling past the end of a chapter glides into the next one, with a small progress indicator. If the direction feels wrong on your mouse, flip it in Settings.
+**Auto-scroll (optional).** Off by default; turn it on in Settings to have the
+page follow the narration.
 
 ## A note on speech
-
-Turning text into speech uses a free online voice service the first time each sentence is heard, so that first listen needs internet. After that, the audio is saved in a cache on your computer (up to 100 MB by default, adjustable in Settings) and replays fully offline.
+Turning text into speech uses a free online voice service the first time each
+sentence is heard, so that first listen needs internet. After that the audio is
+cached on your computer (100 MB by default, adjustable in Settings) and replays
+without a connection.
 
 ## Help and source code
 
-Reader is open source. If something isn't working or you have an idea, please [open an issue](https://github.com/raffleberry/reader/issues). If you'd like to build it yourself or contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Reader is open source. If something isn't working or you have an idea, please
+[open an issue](https://github.com/raffleberry/reader/issues). If you'd like to
+build it yourself or contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).

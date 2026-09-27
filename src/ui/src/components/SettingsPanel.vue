@@ -1,37 +1,127 @@
 <template>
   <div>
-    <div v-if="IS_DEMO" class="alert alert-info">
-      Online demo: reading settings work, but voice and speech-cache settings need the app.
-      <a :href="RELEASE_URL" target="_blank" rel="noopener">Download it free</a>.
+    <h2 class="h6 text-uppercase text-body-secondary">Speech server</h2>
+    <p class="small text-body-secondary">
+      Reader reads on its own. To hear it speak, it needs the small Reader
+      server running on your computer.
+    </p>
+    <div v-if="serverError" class="alert alert-danger p-2 small">
+      {{ serverError }}
+      <a :href="RELEASE_URL" target="_blank" rel="noopener">Download it</a>
     </div>
-    <div v-if="error" class="alert alert-danger">{{ error }}</div>
-    <div v-if="saved" class="alert alert-success">Saved.</div>
-
+    <div v-else-if="prefs.server === 'down'" class="alert alert-warning p-2 small">
+      Nothing is answering at <code>{{ prefs.serverUrl }}</code>.
+      <a :href="RELEASE_URL" target="_blank" rel="noopener">Download the server</a>,
+      start it, then try again.
+    </div>
     <div class="mb-3">
-      <label class="form-label" for="sidecar-voice">Voice</label>
-      <select id="sidecar-voice" v-model="voice" class="form-select">
+      <label class="form-label" for="set-server">Server address</label>
+      <input
+        id="set-server"
+        v-model="address"
+        class="form-control form-control-sm"
+        inputmode="url"
+        spellcheck="false"
+        placeholder="http://127.0.0.1:8000"
+        @keyup.enter="saveServer"
+      />
+      <div class="form-text">
+        Where the server is listening. Change the port if you started it with
+        <code>--port</code>.
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary btn-sm" :disabled="busy" @click="saveServer">
+        {{ busy ? "Checking…" : "Save & test" }}
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="busy" @click="testOnly">Test</button>
+    </div>
+    <div class="form-text">
+      <template v-if="prefs.server === 'up'">Connected<span v-if="prefs.serverVersion"> · version {{ prefs.serverVersion }}</span>.</template>
+      <template v-else-if="prefs.server === 'unknown'">Checking…</template>
+      <template v-else>Not reachable.</template>
+    </div>
+
+    <hr />
+
+    <h2 class="h6 text-uppercase text-body-secondary">Voice</h2>
+    <div v-if="error" class="alert alert-danger p-2 small">{{ error }}</div>
+    <div v-if="saved" class="alert alert-success p-2 small">Saved.</div>
+    <div class="mb-3">
+      <label class="form-label" for="set-voice">Voice</label>
+      <select id="set-voice" v-model="voice" class="form-select form-select-sm">
         <option v-for="v in VOICES" :key="v" :value="v">{{ v }}</option>
       </select>
-      <div class="form-text">Saved to the server on Save, mirrored in this browser.</div>
+      <div class="form-text">Sent to the server when you save.</div>
     </div>
     <div class="mb-3">
-      <label class="form-label" for="sidecar-rate">Playback speed</label>
+      <label class="form-label" for="set-cache">Speech cache size (MB)</label>
+      <input
+        id="set-cache"
+        v-model.number="cacheMb"
+        type="number"
+        min="10"
+        max="2000"
+        class="form-control form-control-sm"
+      />
+      <div class="form-text">
+        Shared across books, oldest first out. Currently {{ statsText }}.
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary btn-sm" :disabled="busy" @click="save">Save</button>
+      <button class="btn btn-outline-danger btn-sm" :disabled="busy" @click="wipe">Clear cache</button>
+    </div>
+
+    <hr />
+
+    <h2 class="h6 text-uppercase text-body-secondary">Playback</h2>
+    <div class="mb-3">
+      <label class="form-label" for="set-rate">Playback speed</label>
       <select
-        id="sidecar-rate"
-        class="form-select"
-        :value="player.rate"
-        @change="player.setRate(Number(($event.target as HTMLSelectElement).value))"
+        id="set-rate"
+        class="form-select form-select-sm"
+        :value="prefs.rate"
+        @change="prefs.setRate(Number(($event.target as HTMLSelectElement).value))"
       >
         <option v-for="r in RATES" :key="r" :value="r">{{ r }}×</option>
       </select>
-      <div class="form-text">Client-side speed, pitch preserved. Applies immediately.{{ IS_DEMO ? " Works in the demo." : "" }}</div>
+      <div class="form-text">Client-side speed, pitch preserved. Applies immediately.</div>
     </div>
     <div class="mb-3">
-      <label class="form-label" for="sidecar-theme">Theme</label>
+      <label class="form-label" for="set-ahead">Read-ahead sentences</label>
+      <input
+        id="set-ahead"
+        class="form-control form-control-sm"
+        type="number"
+        min="0"
+        max="10"
+        :value="prefs.readahead"
+        @change="prefs.setReadahead(Number(($event.target as HTMLInputElement).value))"
+      />
+      <div class="form-text">How many upcoming sentences to pre-generate while you listen.</div>
+    </div>
+    <div class="mb-3 form-check form-switch">
+      <input
+        id="set-autoscroll"
+        class="form-check-input"
+        type="checkbox"
+        :checked="prefs.autoScroll"
+        @change="prefs.setAutoScroll(($event.target as HTMLInputElement).checked)"
+      />
+      <label class="form-check-label" for="set-autoscroll">Auto-scroll</label>
+      <div class="form-text">Keep the sentence being read in view while reading aloud.</div>
+    </div>
+
+    <hr />
+
+    <h2 class="h6 text-uppercase text-body-secondary">Reading</h2>
+    <div class="mb-3">
+      <label class="form-label" for="set-theme">Theme</label>
       <select
-        id="sidecar-theme"
-        class="form-select"
-        :value="reader.theme"
+        id="set-theme"
+        class="form-select form-select-sm"
+        :value="prefs.theme"
         @change="onTheme(($event.target as HTMLSelectElement).value)"
       >
         <option value="light">Light</option>
@@ -41,96 +131,44 @@
       </select>
     </div>
     <div class="mb-3">
-      <span id="sidecar-font-label" class="form-label">Font size · {{ reader.fontScale }}%</span>
-      <div class="btn-group btn-group-sm d-flex" role="group" aria-labelledby="sidecar-font-label">
-        <button class="btn btn-outline-secondary" title="Smaller text" @click="reader.setFont(reader.fontScale - 10)">A−</button>
-        <button class="btn btn-outline-secondary" title="Larger text" @click="reader.setFont(reader.fontScale + 10)">A+</button>
+      <span id="set-font-label" class="form-label">Font size · {{ prefs.font }}%</span>
+      <div class="btn-group btn-group-sm d-flex" role="group" aria-labelledby="set-font-label">
+        <button class="btn btn-outline-secondary" title="Smaller text" @click="prefs.setFont(prefs.font - 10)">A−</button>
+        <button class="btn btn-outline-secondary" title="Larger text" @click="prefs.setFont(prefs.font + 10)">A+</button>
       </div>
-    </div>
-    <div class="mb-3">
-      <label class="form-label" for="sidecar-cache">Speech cache size (MB)</label>
-      <input id="sidecar-cache" v-model.number="cacheMb" type="number" min="10" max="2000" class="form-control" :disabled="IS_DEMO" />
-      <div class="form-text">{{ IS_DEMO ? "Needs the downloaded app." : "Shared across books, oldest first out. Currently " + statsText + "." }}</div>
-    </div>
-    <div class="mb-3">
-      <label class="form-label" for="sidecar-ahead">Read-ahead sentences</label>
-      <input id="sidecar-ahead" v-model.number="ahead" type="number" min="0" max="10" class="form-control" />
-      <div class="form-text">How many upcoming sentences to pre-generate while you listen.</div>
-    </div>
-    <div class="mb-3">
-      <label class="form-label" for="sidecar-wheel">Scroll direction</label>
-      <select
-        id="sidecar-wheel"
-        class="form-select"
-        :value="reader.wheel"
-        @change="onWheel(($event.target as HTMLSelectElement).value)"
-      >
-        <option value="normal">Normal — scroll down goes forward</option>
-        <option value="inverted">Inverted — scroll up goes forward</option>
-      </select>
-      <div class="form-text">
-        Pushing past the end opens the next chapter (past the start, the previous one).
-      </div>
-    </div>
-    <div class="mb-3 form-check form-switch">
-      <input
-        id="sidecar-autoscroll"
-        class="form-check-input"
-        type="checkbox"
-        :checked="player.autoScroll"
-        @change="player.toggleScroll()"
-      />
-      <label class="form-check-label" for="sidecar-autoscroll">Auto-scroll</label>
-      <div class="form-text">Keep the sentence being read in view while reading aloud.</div>
-    </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-primary" :disabled="busy || IS_DEMO" :title="IS_DEMO ? 'Needs the downloaded app' : undefined" @click="save">
-        {{ busy ? "Saving…" : "Save" }}
-      </button>
-      <button class="btn btn-outline-danger" :disabled="busy || IS_DEMO" :title="IS_DEMO ? 'Needs the downloaded app' : undefined" @click="wipe">
-        Clear speech cache
-      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import {
-  VOICES,
-  cacheStats,
-  clearCache,
-  getSettings,
-  putSettings,
-} from "../api/settings";
-import { useReader } from "../store/reader";
-import type { ThemeName } from "../store/reader";
-import { RATES, usePlayer } from "../store/player";
-import { IS_DEMO, RELEASE_URL } from "../demo";
+import { onMounted, ref, watch } from "vue";
+import { VOICES, cacheStats, clearCache, getSettings, putSettings } from "../api/settings";
+import { RELEASE_URL, normalizeUrl } from "../ext/serve";
+import { RATES, usePrefs } from "../store/prefs";
+import type { ThemeName } from "../types";
 
-const AHEAD_KEY = "reader.readahead";
-const VOICE_KEY = "reader.voice";
+const prefs = usePrefs();
 
-const reader = useReader();
-const player = usePlayer();
-
+const address = ref(prefs.serverUrl);
 const voice = ref(VOICES[0]);
 const cacheMb = ref(100);
-const ahead = ref(3);
 const statsText = ref("…");
 const busy = ref(false);
 const error = ref("");
 const saved = ref(false);
+const serverError = ref("");
+
+/** Keep the field in step with a change made on the options page. */
+watch(
+  () => prefs.serverUrl,
+  (v) => (address.value = v),
+);
 
 function fmtBytes(n: number): string {
   return n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
 }
 
 async function refreshStats(): Promise<void> {
-  if (IS_DEMO) {
-    statsText.value = "demo";
-    return;
-  }
   try {
     const s = await cacheStats();
     statsText.value = `${s.entries} entries, ${fmtBytes(s.bytes)}`;
@@ -139,35 +177,50 @@ async function refreshStats(): Promise<void> {
   }
 }
 
-function onWheel(value: string): void {
-  reader.setWheel(value === "inverted" ? "inverted" : "normal");
-}
-
 function onTheme(value: string): void {
   if (value === "sepia" || value === "dark" || value === "monokai" || value === "light") {
-    reader.setTheme(value as ThemeName);
+    void prefs.setTheme(value as ThemeName);
   }
+}
+
+/** Store the address and immediately ask it whether it is there. */
+async function saveServer(): Promise<void> {
+  const next = normalizeUrl(address.value);
+  if (!next) {
+    serverError.value = "That doesn't look like an address. Try http://127.0.0.1:8000";
+    return;
+  }
+  serverError.value = "";
+  busy.value = true;
+  try {
+    await prefs.setServerUrl(next);
+  } finally {
+    busy.value = false;
+  }
+  if (prefs.server === "up") await refreshStats();
+}
+
+async function testOnly(): Promise<void> {
+  busy.value = true;
+  try {
+    await prefs.checkServer();
+  } finally {
+    busy.value = false;
+  }
+  if (prefs.server === "up") await refreshStats();
 }
 
 onMounted(async () => {
-  const cached = localStorage.getItem(VOICE_KEY);
-  if (cached && VOICES.includes(cached)) voice.value = cached;
-  if (IS_DEMO) {
-    const n = Number(localStorage.getItem(AHEAD_KEY) || 3);
-    if (Number.isFinite(n)) ahead.value = n;
-    await refreshStats();
-    return;
-  }
   try {
     const s = await getSettings();
     voice.value = VOICES.includes(s.voice) ? s.voice : VOICES[0];
     cacheMb.value = s.cache_mb;
+    void prefs.setVoice(voice.value);
+    await refreshStats();
   } catch (err) {
-    error.value = (err as Error).message;
+    if ((err as Error).name === "ServerDown") serverError.value = (err as Error).message;
+    else error.value = (err as Error).message;
   }
-  const n = Number(localStorage.getItem(AHEAD_KEY) || 3);
-  if (Number.isFinite(n)) ahead.value = n;
-  await refreshStats();
 });
 
 async function save(): Promise<void> {
@@ -176,8 +229,7 @@ async function save(): Promise<void> {
   saved.value = false;
   try {
     await putSettings({ voice: voice.value, cache_mb: cacheMb.value });
-    localStorage.setItem(AHEAD_KEY, String(ahead.value));
-    localStorage.setItem(VOICE_KEY, voice.value);
+    await prefs.setVoice(voice.value);
     saved.value = true;
   } catch (err) {
     error.value = (err as Error).message;

@@ -23,7 +23,7 @@ jobs:
           max=0
           for t in $(git tag -l 'v[0-9]*'); do
             n=${t#v}
-            case $n in (*[!0-9]*) continue;; esac
+            case "$n" in (*[!0-9]*) continue;; esac
             [ "$n" -gt "$max" ] && max=$n
           done
           tag="v$((max + 1))"
@@ -32,7 +32,28 @@ jobs:
           git tag "$tag"
           git push origin "$tag"
 
-  build:
+  # The extension, for the Chrome Web Store, Edge and Firefox Add-ons.
+  extension:
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: src/ui
+      - run: bun run test
+        working-directory: src/ui
+      - run: bun run zip
+        working-directory: src/ui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: src/ui/.output/*.zip
+
+  # The speech server, as a self-contained binary.
+  server:
     needs: tag
     strategy:
       matrix:
@@ -46,23 +67,18 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
-      - uses: oven-sh/setup-bun@v2
       - run: uv sync --group packaging
-      - run: bun install
-        working-directory: src/ui
-      - run: bun run build
-        working-directory: src/ui
-      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --paths src --add-data "src/ui/dist:ui/dist" --collect-all edge_tts --collect-all aiohttp src/reader/__main__.py
+      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --collect-all edge_tts --collect-all aiohttp reader.py
         if: runner.os != 'Windows'
-      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --paths src --add-data "src/ui/dist;ui/dist" --collect-all edge_tts --collect-all aiohttp src/reader/__main__.py
+      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --collect-all edge_tts --collect-all aiohttp reader.py
         if: runner.os == 'Windows'
       - uses: actions/upload-artifact@v4
         with:
-          name: reader-${{ runner.os }}-${{ needs.tag.outputs.tag }}
+          name: server-${{ runner.os }}-${{ needs.tag.outputs.tag }}
           path: dist/reader*
 
   publish:
-    needs: [tag, build]
+    needs: [tag, extension, server]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +94,7 @@ jobs:
           tag_name: ${{ needs.tag.outputs.tag }}
           target_commitish: release
           generate_release_notes: true
-          files: artifacts/reader*
+          files: artifacts/*
       - run: |
           set -euo pipefail
           mapfile -t old < <(gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+$' | sort -t v -k2 -n | head -n -5 || true)

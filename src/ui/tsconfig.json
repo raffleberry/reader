@@ -1,16 +1,26 @@
 {
+  "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "strict": true,
     "skipLibCheck": true,
     "noUnusedLocals": false,
-    "useDefineForClassFields": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "types": ["vite/client"]
+    // WXT's generated config turns this on. The reader indexes arrays that
+    // it has already bounds-checked (`sentences[i]` inside a length guard),
+    // and turning it on would mean rewriting the highlighter's DOM walking
+    // for no gain in safety.
+    "noUncheckedIndexedAccess": false,
+    "types": ["vite/client", "node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "test/**/*.ts",
+    "test/**/*.d.ts",
+    "e2e/**/*.ts",
+    "e2e/**/*.d.ts",
+    "wxt.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    ".wxt/**/*"
+  ]
 }

@@ -1,60 +1,223 @@
 # Contributing to Reader
 
-This guide covers the technical side: architecture, tooling, and tests. For the user-facing overview, see [README.md](README.md).
+This guide covers the technical side: architecture, tooling, and tests. For the
+user-facing overview, see [README.md](README.md).
 
 ## Architecture
 
-Books live in the browser (IndexedDB); the backend is TTS-only and stateless — it holds no book state.
+Reader is two halves that never share state:
 
-- Backend: Python + `aiohttp`: `POST /api/tts/audio|words|prefetch {text}`, settings + cache API.
-- Frontend: Vue 3 + Pinia (setup stores) + TypeScript (`<script setup>`), Bootstrap, `bun`. EPUBs render with `vue-reader`.
+- **The extension** (`src/ui/`) holds the book, renders it, and drives playback.
+  It stores settings and one "where I was" note per book. Nothing else.
+- **The server** (`reader.py`, one file) turns text into audio. It is told the
+  text of the sentence being read and nothing else — no book, no filename, no
+  reading history.
+
+The extension finds the server over plain HTTP on the loopback interface. If it
+isn't there, that is a first-class state in the UI, not an error: the reader
+says where it looked and links to the download.
+
+- Extension: Vue 3 + Pinia (setup stores) + TypeScript (`<script setup>`),
+  Bootstrap, **WXT** (Vite under the hood), `bun`. EPUBs render with
+  `vue-reader` (epub.js).
+- Server: Python + `aiohttp` + `edge-tts` + `platformdirs`, `uv`.
 - Task runner: `just`. Python deps: `uv`. JS deps: `bun`.
 
 ### Layout
 
 ```text
-src/reader/ # server.py (routes), voice.py (edge-tts + disk LRU),
-            # settings.py (validated JSON), store.py (system dirs),
-            # browser.py (auto-open), paths.py (UI dist lookup)
-src/ui/     # main.ts, router.ts, types.ts, theme.ts, db.ts (IndexedDB),
-            # api/ (voice, settings), text/epub.ts (zip->sentences),
-            # tts/locate.ts (sentence->DOM), store/ (reader, player, sidecar),
-            # views/ (Library, Reader), components/ (TopBar, BookCard,
-            # ReaderBar, Sidecar, TocList, BookmarksPanel, SettingsPanel,
-            # StorageGate)
-tests/      # pytest, offline-safe (TTS service never touched)
-src/ui/e2e/ # playwright chromium highlighter tests (`just e2e`)
+reader.py           # the whole server: settings, disk LRU, edge-tts, routes, CORS
+tests/test_reader.py# pytest, offline-safe (the TTS service is never called)
+src/ui/
+  wxt.config.ts     # srcDir: src, module-vue + auto-icons, generated manifest
+  vitest.config.ts  # WxtVitest: unit tests with a working in-memory browser
+  playwright.config.ts # e2e against the *built* extension
+  entrypoints/      # background.ts, reader/ (unlisted page), options/
+  src/
+    ext/            # settings.ts (storage items), serve.ts (server address +
+                    # probe + "download it" message), shelf.ts (last place),
+                    # marks.ts (bookmarks)
+    api/            # voice.ts + settings.ts (absolute URLs, ServerDown)
+    store/          # prefs (settings + server state), reader (open book),
+                    # player (read-aloud), sidecar
+    views/          # OpenBook (start screen), Reader, Options
+    components/     # Sidecar, ReaderBar, ServerBadge, RecentCard, TocList,
+                    # BookmarksPanel, SettingsPanel
+    tts/            # locate.ts (sentence→DOM), mark.ts (the live highlight),
+                    # cfi.ts (spine positions), sound.ts (the audio element)
+    text/epub.ts    # zip → sentences
+    assets/         # app.css (palette + chrome), icon.svg (base for PNGs)
+  test/             # vitest specs
+  e2e/              # playwright specs (built extension + the real server)
+  fixtures/         # sample.epub, used by the e2e tests
 ```
 
-### Backend (`src/reader/`, uv, aiohttp + edge-tts + platformdirs)
+### Server (`reader.py`)
 
-- `server.py`: `GET /api/health|settings|cache/stats`, `PUT /api/settings`, `DELETE /api/cache`, `POST /api/tts/audio|words {text}`, `POST /api/tts/prefetch {texts}` (202, max 20). TTS fail → 502. `PORT` overrides 8000. `main()` auto-opens the browser via `browser.py`.
-- `voice.py`: shared disk LRU keyed `sha1(voice+text)`; `settings.py`: validated JSON (`cache_mb` 10-2000, `readahead` 0-10, voice str). `paths.py`: UI dist lookup (frozen `ui/dist` vs source `src/ui/dist`). `store.py`: system dirs (cache/config).
-- Dirs: `~/.cache/reader/tts`, `~/.config/reader/settings.json` (Linux; platformdirs elsewhere).
+- `GET /` (info page), `GET /api/health` (`{ok, version}` — the extension's
+  liveness probe), `GET|PUT /api/settings`, `GET /api/cache/stats`,
+  `DELETE /api/cache`, `POST /api/tts/audio|words {text}`,
+  `POST /api/tts/prefetch {texts}` (202, max 20). TTS failure → 502.
+- **CORS is extension-only.** `cors_headers()` reflects the caller's `Origin`
+  only when it starts with `chrome-extension://` or `moz-extension://`.
+  Chromium doesn't need this (host permissions bypass CORS); Firefox does,
+  because its MV3 host permissions are opt-in. It also means a normal web page
+  cannot use the server.
+- `Lru` is a bounded on-disk cache of MP3 + word timings, keyed
+  `sha1(voice + text)` so identical sentences share an entry across books.
+  `save_settings()` re-trims it when the size cap changes.
+- CLI: `--port` (or `PORT`), `--host` (or `HOST`), `--open`, `--version`.
+- Dirs: `~/.cache/reader/tts`, `~/.config/reader/settings.json` (Linux;
+  platformdirs elsewhere).
+- **No UI is served.** The extension is the only client.
 
-### UI (`src/ui/`, bun, TS `<script setup>`, Bootstrap; custom CSS only App.vue)
+### Extension (`src/ui/`, WXT)
 
-- `db.ts` (IDB v2: `books` + `marks` with `bookId` index), `text/epub.ts` (zip→sentences, keys `00-0003`; chapters parsed as lenient HTML, splitter regex-dumb on purpose), `api/voice|settings` (`VOICES`: 47 English Edge voices, Ava first = default), `store/reader|player|sidecar` (all Pinia setup stores: `defineStore(id, () => ...)` with `ref`/`computed`; player: module-scope `Audio` with lookahead queue, run + play tokens drop stale work, rAF word sync, `busy` covers playing/loading/paused so the scrub row keeps showing Resume; `RATES` + `setRate` for client-side speed), `tts/locate.ts` (sentence→DOM via whitespace-collapsed back-map incl. whitespace-only nodes; words painted via live-DOM search inside the sentence element so paint-splits can't drift; `placeSentences` + `sentenceIndexAtSelection` resolve read-from-here by DOM position, never text search; skips unfound words, prefix fallback when the tail differs), `theme.ts` (`data-theme` + `data-bs-theme` on `<html>`, 4 themes incl. monokai, per-theme `HIGHLIGHT_CSS`).
-- Views: `Library`, `Reader` (no Settings route — settings live in the sidecar). Components: `TopBar`, `BookCard`, `ReaderBar` (slim: title + toc/settings buttons only), `Sidecar` (toc/marks/settings tabs + collapse rail), `TocList`, `BookmarksPanel`, `SettingsPanel` (voice + rate + theme + font + wheel + auto-scroll + cache; rate/theme/font/wheel/auto-scroll apply immediately, voice/cache need Save), `StorageGate`.
-- Reader: `EpubView` + custom chrome; depend only on `BookRendition` (`types.ts`: display/prev/next/resize/getContents/hooks/on/off, `book.locations` + `book.spine`), never epubjs `Rendition` class. Gotchas: `openAs:'binary'` (ArrayBuffer input; `'epub'` would fetch `"[object ArrayBuffer]"`); `.reader-frame` must be `relative` + neutralize EpubView's absolute `.reader` inset; iframe keys + wheel owned by us (`enable-key=false`, `enable-wheel=false`); location state (cfi/href/spine) comes from our own `relocated` listener — vue-reader's `update:location` carries only the CFI string; highlight CSS injected per chapter via `hooks.content`; chrome is static in-flow edges (top ReaderBar with `p / N · chapter`, bottom scrub row: prev/next, slider, play, count); a ResizeObserver re-measures the rendition on frame size changes.
-- Player: read-aloud starts at the current chapter (`firstAudible`; exact-page CFI seek is a queued follow-up); `ensureSentenceDoc` displays once per chapter then pages forward until the sentence is visible (same-page sentences never redisplay); client-side playback speed (`rate`, localStorage, pitch preserved); auto-scroll defaults off (Settings); AbortError from a paused/interrupted load is never a UI error (retry once).
-- Wheel: the book is one continuous scroll; edge-overscroll advances chapters (9 ticks + 120px, jitter deadband, 800ms cooldown, suppressed at book ends) with an `over-ind` pill; chapter edge = iframe-rect vs `.epub-container`-rect visibility (never scroll offsets); direction is a `reader.wheel` setting (Normal/Inverted, localStorage).
-- Scrub row: floating-ui thumb popup + TOC chapter markers (spine→first-location, one per page) with floating-ui tooltips; text selection shows a floating-ui popup (bookmark / read-from-here / copy); bookmarks jump + flash via `BookmarksPanel`.
-- Deps: `@floating-ui/dom` (all floating UI), `@playwright/test` (chromium in `~/.cache/ms-playwright`; `just e2e`), TS pinned v5 (vue-tsc breaks on v7); vite host `127.0.0.1` (bare vite binds `::1` only).
+- `srcDir: "src"`, so `entrypoints/` sits next to `views/`, `components/` and
+  `store/`. Auto-imports are **off** (`imports: false`): this codebase imports
+  everything explicitly.
+- The manifest is generated in `wxt.config.ts`: `storage` permission,
+  loopback host permissions (match patterns ignore the port), an `action` with
+  no popup, `options_ui`, and — for Firefox — a gecko id and
+  `data_collection_permissions`. Firefox is built with `--mv3` (WXT defaults
+  Firefox to MV2).
+- `entrypoints/background.ts`: the toolbar button opens `/reader.html`, or
+  focuses the tab it opened last (tracked in **session** storage, forgotten on
+  `tabs.onRemoved`, so a recycled tab id can't hijack a click). No `tabs`
+  permission is requested.
+- **Storage is `wxt/utils/storage`**, never `localStorage`:
+  - `ext/settings.ts` defines one item per preference.
+  - `ext/shelf.ts` keeps up to 8 "where I was" notes. A book is identified by
+    `sha-256(size ‖ mtime ‖ first 256 KB)` — enough to recognise the same file
+    after a rename or move, without reading (or keeping) the whole thing.
+  - `ext/marks.ts` keeps bookmarks under that same fingerprint: a sentence
+    index, a chapter label and ≤140 characters of the selected text, capped at
+    200 per book. A bookmark is only reachable through a shelf entry, so
+    `shelf.remember` drops the bookmarks of any book the shelf evicts, and
+    `marks.forgetBook` is what the start screen's delete calls.
+  - `store/prefs.ts` hydrates those items into refs before the first render and
+    `watch`es them, so the sidebar and the options page stay in step.
+- `ext/serve.ts` owns the server address: `normalizeUrl`, the module-scope
+  `api(path)` used by `api/*`, `probe()` (2 s timeout, never throws),
+  `downMessage()` / `ServerDown`, and `onServerDown`/`reportDown` so a request
+  that never connected marks the server down immediately. The UI shows the
+  state in three places: a `ServerBadge` in the reader bar, a dismissible
+  banner over the book, and the player-error row. `player.start` probes first,
+  and play/resume are **disabled** while it is down — so pressing play with no
+  server says so instead of failing on a request. `prefs.watchServer()` polls
+  `GET /api/health` every 15 s while the tab is visible, so a server that dies
+  mid-session is noticed even if you aren't speaking yet.
+- Reader: `EpubView` + custom chrome; depend only on `BookRendition`
+  (`types.ts`), never the epub.js `Rendition` class. Gotchas: `openAs:'binary'`;
+  `.reader-frame` must be `relative` and neutralize EpubView's absolute
+  `.reader` inset; iframe keys are ours (`enable-key=false`,
+  `enable-wheel=false` — the wheel is the browser's now); location state
+  (cfi/href/spine) comes from our own `relocated` listener; highlight and link
+  CSS is injected per chapter via `hooks.content`; chrome is static in-flow
+  edges; a ResizeObserver re-measures the rendition on frame size changes.
+- **The book is one continuous scroll.** `epubOptions` is
+  `{flow:'scrolled-doc', manager:'continuous'}`: whole chapters are stacked in a
+  single `.epub-container` scroll, and epub.js appends the next (or the
+  previous) section as you reach one. There are no chapter edges, so there is
+  no overscroll pill and no scroll-direction setting — the wheel and the
+  scrollbar scroll natively, and the arrow keys page a screenful.
+  - The manager decides whether to stack more from the container's *scroll
+    height*, and re-checks only when you scroll. That leaves two gaps, which
+    `Reader.vue`'s `stackAhead()` closes by calling `manager.fill()` on every
+    `relocated`: the first section's height settles *after* epub.js's own
+    `fill()` ran, and a section that fits the screen leaves nothing to scroll,
+    so no scroll ever comes. Without it the book opens one chapter long and
+    stays that way. Each stacked section relocates, so it converges.
+  - Several chapter documents are live at once, so anything we inject goes
+    through `hooks.content`, and e2e tests must pick the frame they mean
+    (`e2e/chapter.ts`).
+- **`hooks.content` fires on every re-render, not just the first load.**
+  `rendition.resize()` → `manager.resize()` → `views.clear()` + re-render, and
+  hiding the sidebar resizes the frame — so the chapter document is destroyed
+  and rebuilt, and every span we injected dies with it. That is why the
+  highlight is kept as *text* in `tts/mark.ts`: the content hook calls
+  `rerender(doc)`, which re-finds the sentence in the new document and rewinds
+  the word cursor so the audio clock re-paints the current word. Anything else
+  injected into a chapter document belongs in the same hook.
+- `relocated` → `reader.scheduleSave()` debounces the shelf write, and
+  `pagehide` flushes it. Playback position comes along in the note, so
+  `reader.playFrom()` can continue mid-chapter.
+- Chapter CSS: `theme.ts` carries the highlight rules *and* per-theme link
+  colours (`LINK_CSS`), both injected into every chapter document. A book's own
+  stylesheet usually picks a link colour that disappears on our background, so
+  ours is `!important`; a test asserts the dark themes' links clear the page
+  background by a real contrast ratio. Scrolling to a sentence (auto-scroll, a
+  bookmark jump) centres the chapter's iframe *first*, then the sentence
+  inside it — centring the iframe alone would only land mid-chapter.
+- Bookmarks: made from the selection popup (`markSel`, which files the sentence
+  the selection started in), listed by `BookmarksPanel` in the sidecar — it
+  follows storage, so one made while the panel is open just appears. A jump
+  reuses the read-aloud path (`ensureSentenceDoc`) and flashes the sentence with
+  a plain `paint`, so it can't collide with the highlight playback owns.
+- Start screen: the "recently read" list is a record, not a launcher. Each card
+  shows the chapter, progress and bookmark count, and its only control deletes
+  everything about that document (note + bookmarks, confirmed first).
+- Player: read-aloud starts at `playFrom(firstAudible())`; `ensureSentenceDoc`
+  displays once per chapter then pages forward until the sentence is visible
+  (same-page sentences never redisplay); client-side speed (prefs, pitch
+  preserved); auto-scroll off by default; an AbortError from a paused load is
+  never a UI error (retry once).
+- Scrub row: floating-ui thumb popup + TOC chapter markers with tooltips; text
+  selection shows a floating-ui popup (bookmark / read from here / copy).
+- Deps: `@floating-ui/dom`, `@wxt-dev/module-vue`, `@wxt-dev/auto-icons`
+  (renders `assets/icon.svg` to the PNG sizes each store wants), `vitest`,
+  `@playwright/test`, `jsdom` (pinned to v26 — jsdom 30 breaks vitest 5's
+  environment setup), TS v5.
 
 ## Commands (`just` is truth; don't invent)
 
-- `setup` (uv sync + bun install) · `server` :8000 · `web` :5173 (proxies /api) · `dev` both
-- `build` (vue-tsc + vite → src/ui/dist, served by server) · `check` (compileall + pytest + build) · `e2e` (playwright chromium highlighter tests; first time: `bun x playwright install chromium`) · `package` (PyInstaller onefile → dist/reader(.exe), auto-opens browser) · `demo` (static no-backend build → src/ui/dist-demo, host as a static page)
-
-## Static demo build
-
-`just demo` (or `bun run build:demo` in `src/ui`) builds with `VITE_DEMO=1` into `src/ui/dist-demo` (relative `--base ./`, so it can be hosted from any path), a fully static page needing no server. `src/ui/src/demo.ts:IS_DEMO` is the single switch: speech calls throw a friendly "download the app" error, the reader shows a demo banner, and server-backed settings (voice save, cache size, clear cache) are disabled with hints pointing at the releases page. The router uses hash history in demo builds so refresh/deep-links always land on `index.html` (no server rewrites needed; the server build keeps clean URLs via its index fallback). A service worker (`public/sw.js`, registered from `main.ts` in demo only) caches the app shell offline-first — books already live in IndexedDB, so all reading features keep working with no connection, with a small offline notice in `App.vue`. The demo also ships 3 bundled books (`public/books/`, seeded into IndexedDB on first run by `library/seed.ts` with stable IDs and a one-shot localStorage flag; afterwards they're ordinary deletable books). Library, reading, TOC, bookmarks, themes, font size, wheel direction, and playback speed all work as normal.
+- `setup` (uv sync + bun install) · `server` :8000 · `ext` (wxt dev, opens a
+  browser with the extension) · `dev` both
+- `build` (`.output/chrome-mv3`) · `build-firefox` (`.output/firefox-mv3`) ·
+  `zip` (store-ready archives for both)
+- `check` (compileall + pytest + vitest + vue-tsc + build) · `e2e` (playwright
+  against the built extension; first time: `bun x playwright install chromium`) ·
+  `package` (PyInstaller onefile → `dist/reader(.exe)`)
 
 ## Tests
 
-`test_settings.py`, `test_voice.py` — offline-safe, TTS never touched.
-`src/ui/e2e/` — playwright chromium (`just e2e`, boots vite dev itself): `highlight.spec.ts` (locate.ts sentence/word paints), `player.spec.ts` (`ensureSentenceDoc` display/page-turn via a fake rendition), `selection.spec.ts` (read-from-here DOM-position resolution), `settings.spec.ts` (Ava-default voices, per-theme highlight CSS, playback rate clamp/persist/apply).
+`tests/test_reader.py` — settings validation, the LRU (eviction, trim, clear),
+the CORS allow-list, and the routes over a real HTTP client. Offline-safe: the
+TTS service is never called.
+
+`src/ui/test/` — vitest. `locate.test.ts` (sentence/word paints),
+`mark.test.ts` (the highlight survives a re-rendered document), `player.test.ts`
+(`ensureSentenceDoc` with a fake rendition), `selection.test.ts`
+(read-from-here DOM-position resolution), `settings.test.ts` (voices, per-theme
+highlight CSS, per-theme link CSS with a contrast check, speed clamp/persist,
+server state), `serve.test.ts` (address
+normalisation, probe, the download message, `reportDown`), `shelf.test.ts`
+(fingerprint, LRU cap, and the promise that nothing book-shaped is stored),
+`marks.test.ts` (bookmarks per book, newest first, the per-book cap, an evicted
+book taking its bookmarks, and the promise that a bookmark is an index plus a
+short excerpt). `test/blob.ts` shims `Blob.arrayBuffer()`, which jsdom lacks.
+
+`src/ui/e2e/` — playwright against `.output/chrome-mv3` in a persistent
+context. `extension.spec.ts`: the manifest asks for nothing it doesn't use; the
+toolbar opens the reader; a missing server is reported honestly *and* play is
+disabled; hiding the sidebar really does replace the chapter document and Reader
+re-hooks the new one; a picked EPUB renders and leaves only a `shelf` entry;
+the book is one continuous scroll (sections stacked, the wheel going both ways
+with nothing to stop at, and a contents click landing on the chapter's own
+anchor); a bookmark made from a selection is stored under the book's
+fingerprint, listed in the sidebar, counted on the start screen — where the card
+has no open button — and deleted along with the book. `server.spec.ts`: boots
+the real `reader.py`, points the extension at it, presses play, and — with real
+speech — checks the same highlighted sentence is still there after the sidebar
+is hidden (skipped when the speech service is unreachable). Polls that inspect
+a chapter frame must tolerate it being detached mid-re-render.
+
+Because the book is one stack, several chapter documents are live at once:
+`e2e/chapter.ts` holds the helpers that pick the one a test means
+(`chapterFrames`, `proseFrame`, `frameWith`, `replacedFrame`). Two consequences
+bite: a chapter's own `getBoundingClientRect()` is in *its* coordinates, so add
+the iframe's offset to ask "is this on screen?"; and a re-render produces a new
+frame object, so re-find it by its text rather than by position.
 
 ## Guidance
 

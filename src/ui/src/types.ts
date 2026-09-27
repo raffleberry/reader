@@ -3,6 +3,10 @@
  * (epubjs types Rendition as a class; depending on the narrow
  * structural surface below keeps us immune to its churn.)
  */
+export type ThemeName = "light" | "sepia" | "dark" | "monokai";
+/** Whether the speech server answered the last probe. */
+export type ServerState = "unknown" | "up" | "down";
+
 export interface RelocatedPage {
   page: number;
   total: number;
@@ -41,6 +45,16 @@ export interface BookSpine {
   get(target: string | number): SpineSection | null;
 }
 
+/**
+ * epub.js's continuous view manager: it stacks the sections around the one
+ * being read, and `fill()` asks it to stack more — it stops as soon as it
+ * has enough to scroll. Undocumented, but this one call is all Reader needs
+ * (see the note in `views/Reader.vue`).
+ */
+export interface BookManager {
+  fill(): Promise<unknown>;
+}
+
 export interface RenditionBook {
   locations: BookLocations;
   spine: BookSpine;
@@ -53,6 +67,7 @@ export interface BookRendition {
   resize(): void;
   getContents(): unknown;
   hooks: unknown;
+  manager?: BookManager;
   on(event: string, cb: (loc: RelocatedLocation) => void): void;
   off(event: string, cb: (loc: RelocatedLocation) => void): void;
   book?: RenditionBook;

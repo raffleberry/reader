@@ -33,7 +33,7 @@
       <div class="sidecar-body">
         <TocList
           v-if="car.view === 'toc'"
-          :toc="reader.toc"
+          :toc="reader.book ? reader.toc : []"
           :current="reader.chapterHref"
           @go="goToc"
         />

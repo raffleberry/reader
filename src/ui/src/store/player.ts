@@ -1,17 +1,14 @@
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import { createPinia, setActivePinia } from "pinia";
 import type { Contents } from "epubjs";
 import { getWords, speakAudio } from "../api/voice";
 import type { Sentence, Word } from "../api/voice";
-import { paintSentence, paintWord } from "../tts/locate";
-import type { PaintedSentence } from "../tts/locate";
+import { downMessage } from "../ext/serve";
+import { applyRate, reload, setSource, sound } from "../tts/sound";
+import { clear as clearMark, current, reapply, show as showMark } from "../tts/mark";
+import { usePrefs } from "./prefs";
 import { useReader } from "./reader";
-import { DEMO_TTS_MESSAGE, IS_DEMO } from "../demo";
 import type { BookRendition } from "../types";
-
-const SENT_CLS = "tts-sent";
-const WORD_CLS = "tts-word";
 
 export type Phase = "idle" | "loading" | "playing" | "paused" | "error";
 
@@ -26,9 +23,6 @@ function contentsOf(rendition: BookRendition): Contents[] {
 }
 
 /** Module-scope playback bits (never reactive). */
-const sound = new Audio();
-sound.preload = "auto";
-sound.preservesPitch = true;
 /** Drops stale runs (stop / new start). */
 let run = 0;
 /** Drops stale play() calls (pause / stop / new start). */
@@ -36,65 +30,8 @@ let playToken = 0;
 let raf = 0;
 let wordIdx = -1;
 let words: Word[] = [];
-/** Object URL currently assigned to the element (revoked on swap). */
-let blobUrl = "";
 /** Decoded-ahead sentence audio, keyed by sentence index. */
 const ahead = new Map<number, ReadyAudio>();
-let painted: {
-  unpaintSent: () => void;
-  unpaintWord: (() => void) | null;
-  ps: PaintedSentence;
-  /** Collapsed-text offset past the last painted word. */
-  cursor: number;
-} | null = null;
-
-/** Playback speed; sidecar Settings value, local only. */
-const RATE_KEY = "reader.rate";
-
-/** Offered speeds (client-side element rate, pitch preserved). */
-export const RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-
-function storedRate(): number {
-  const raw = localStorage.getItem(RATE_KEY);
-  if (raw === null) return 1;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 1;
-  return Math.min(2, Math.max(0.5, n));
-}
-
-/** Push the stored speed onto the element (client-side, pitch preserved). */
-function applyRate(): void {
-  sound.preservesPitch = true;
-  sound.playbackRate = storedRate();
-}
-
-/** Fresh player store on its own pinia; used by browser tests. */
-export function isolatedPlayer(): ReturnType<typeof usePlayer> {
-  setActivePinia(createPinia());
-  return usePlayer();
-}
-
-/** Element rate for tests (the store itself is reactive state + actions). */
-export function audioRate(): number {
-  return sound.playbackRate;
-}
-
-applyRate();
-
-/** Read-ahead window (sentences); Settings page value, local only. */
-const AHEAD_KEY = "reader.readahead";
-
-/** Auto-scroll with the spoken sentence; sidecar Settings value, local only. */
-const SCROLL_KEY = "reader.autoscroll";
-
-function storedScroll(): boolean {
-  return localStorage.getItem(SCROLL_KEY) === "1";
-}
-
-function readAhead(): number {
-  const n = Number(localStorage.getItem(AHEAD_KEY) || 3);
-  return Number.isFinite(n) && n >= 0 ? Math.min(10, Math.floor(n)) : 3;
-}
 
 /**
  * Read-aloud engine: one audio element fed from a lookahead queue.
@@ -106,19 +43,24 @@ export const usePlayer = defineStore("player", () => {
   const phase = ref<Phase>("idle");
   const pos = ref(0);
   const error = ref("");
-  const autoScroll = ref(storedScroll());
-  const rate = ref(storedRate());
 
   const busy = computed(() => phase.value === "playing" || phase.value === "loading" || phase.value === "paused");
+
+  // Speed lives in prefs (so the options page and the sidebar agree); the
+  // element is told about every change, wherever it came from.
+  watch(
+    () => usePrefs().rate,
+    (r) => applyRate(r),
+    { immediate: true },
+  );
 
   function hardStop(): void {
     run++;
     playToken++;
-    sound.pause();
-    sound.removeAttribute("src");
-    setActive("");
+    sound().pause();
+    setSource("");
     stopWords();
-    clearPaint();
+    clearMark();
     clearAhead();
   }
 
@@ -135,18 +77,18 @@ export const usePlayer = defineStore("player", () => {
     phase.value = "loading";
     const sent = reader.sentences[i];
     try {
-      await showSentence(reader.rendition, sent, autoScroll.value, () => myRun === run);
+      await showSentence(reader.rendition, sent, usePrefs().autoScroll, () => myRun === run);
       if (myRun !== run) return;
       const item = await ensureAudio(i, myRun);
       if (!item || myRun !== run) return;
       words = item.words;
       void lookahead(i, myRun);
-      setActive(item.url);
+      setSource(item.url);
       phase.value = "playing";
-      sound.onended = () => {
+      sound().onended = () => {
         if (myRun === run) void playAt(i + 1, myRun);
       };
-      sound.onerror = () => {
+      sound().onerror = () => {
         if (myRun === run) void playAt(i + 1, myRun);
       };
       beginWords();
@@ -163,10 +105,12 @@ export const usePlayer = defineStore("player", () => {
   }
 
   async function start(from = 0): Promise<void> {
-    if (IS_DEMO) {
+    const prefs = usePrefs();
+    // Nothing to speak to: say so plainly instead of failing on a request.
+    if (!(await prefs.ensureServer())) {
       hardStop();
       phase.value = "error";
-      error.value = DEMO_TTS_MESSAGE;
+      error.value = downMessage();
       return;
     }
     hardStop();
@@ -184,7 +128,7 @@ export const usePlayer = defineStore("player", () => {
   function pause(): void {
     if (phase.value !== "playing") return;
     playToken++;
-    sound.pause();
+    sound().pause();
     stopWords();
     phase.value = "paused";
   }
@@ -202,27 +146,8 @@ export const usePlayer = defineStore("player", () => {
     }
   }
 
-  function toggleScroll(): void {
-    autoScroll.value = !autoScroll.value;
-    localStorage.setItem(SCROLL_KEY, autoScroll.value ? "1" : "0");
-  }
-
-  function setRate(r: number): void {
-    const next = Number.isFinite(r) ? Math.min(2, Math.max(0.5, r)) : 1;
-    rate.value = next;
-    localStorage.setItem(RATE_KEY, String(next));
-    applyRate();
-  }
-
-  return { phase, pos, error, autoScroll, rate, busy, start, stop, pause, resume, toggleScroll, setRate, playAt, hardStop };
+  return { phase, pos, error, busy, start, stop, pause, resume, playAt, hardStop };
 });
-
-/** Assign audio to the element, revoking whatever it replaces. */
-function setActive(url: string): void {
-  if (blobUrl) URL.revokeObjectURL(blobUrl);
-  blobUrl = url;
-  if (url) sound.src = url;
-}
 
 /** Phase read that narrowing can't second-guess (pause/stop interleave). */
 function currentPhase(player: { phase: Phase }): Phase {
@@ -236,9 +161,9 @@ function currentPhase(player: { phase: Phase }): Phase {
  */
 async function playCurrent(myRun: number): Promise<void> {
   const tok = ++playToken;
-  applyRate();
+  applyRate(usePrefs().rate);
   try {
-    await sound.play();
+    await sound().play();
     return;
   } catch (err) {
     if (tok !== playToken || myRun !== run) return;
@@ -248,9 +173,9 @@ async function playCurrent(myRun: number): Promise<void> {
   if (tok !== playToken || myRun !== run) return;
   if (currentPhase(usePlayer()) === "paused") return;
   const tok2 = ++playToken;
-  if (blobUrl) sound.src = blobUrl;
+  reload();
   try {
-    await sound.play();
+    await sound().play();
   } catch (err) {
     if (tok2 !== playToken || myRun !== run) return;
     if (currentPhase(usePlayer()) === "paused") return;
@@ -281,7 +206,7 @@ async function ensureAudio(i: number, myRun: number): Promise<ReadyAudio | null>
 /** Fetch the next sentences' audio while the current one plays. */
 async function lookahead(from: number, myRun: number): Promise<void> {
   const reader = useReader();
-  const k = Math.max(0, readAhead());
+  const k = Math.max(0, usePrefs().readahead);
   for (const key of [...ahead.keys()]) {
     if (key <= from || key > from + k) {
       URL.revokeObjectURL(ahead.get(key)!.url);
@@ -301,7 +226,7 @@ async function lookahead(from: number, myRun: number): Promise<void> {
             return;
           }
           const pos = usePlayer().pos;
-          if (j <= pos || j > pos + Math.max(0, readAhead()) || ahead.has(j)) {
+          if (j <= pos || j > pos + Math.max(0, usePrefs().readahead) || ahead.has(j)) {
             URL.revokeObjectURL(u);
             return;
           }
@@ -322,28 +247,19 @@ function clearAhead(): void {
 function beginWords(): void {
   stopWords();
   wordIdx = -1;
-  if (!painted || !words.length) return;
+  if (!current() || !words.length) return;
   const step = (): void => {
     raf = 0;
-    if (!painted) return;
-    const t = sound.currentTime * 1000;
+    // Read the mark every frame: a re-render swaps it underneath us.
+    const mark = current();
+    if (!mark) return;
+    const t = sound().currentTime * 1000;
     let n = wordIdx;
     while (n + 1 < words.length && words[n + 1].start_ms <= t) n++;
     if (n !== wordIdx) {
       wordIdx = n;
-      clearWord();
       const w = words[wordIdx];
-      if (w && painted) {
-        try {
-          const paintedWord = paintWord(painted.ps, w.text, painted.cursor, WORD_CLS);
-          if (paintedWord) {
-            painted.cursor = paintedWord.end;
-            painted.unpaintWord = paintedWord.unpaint;
-          }
-        } catch {
-          // Live-DOM paint failed: skip this word, keep the audio playing.
-        }
-      }
+      if (w) mark.paint(w.text);
     }
     const last = words[wordIdx];
     if (wordIdx >= words.length - 1 && last && t > last.end_ms) return;
@@ -364,16 +280,18 @@ async function showSentence(
   scroll: boolean,
   alive: () => boolean,
 ): Promise<void> {
-  clearPaint();
+  clearMark();
   if (!rendition) return;
   const doc = await ensureSentenceDoc(rendition, sent, alive);
   if (!doc || !alive()) return;
-  const ps = paintSentence(doc, sent.text, SENT_CLS);
-  if (!ps) return; // audio still plays; highlight skipped
-  painted = { unpaintSent: ps.unpaint, unpaintWord: null, ps, cursor: 0 };
+  const mark = showMark(doc, sent.text);
+  if (!mark) return; // audio still plays; highlight skipped
   if (scroll) {
-    ps.el.scrollIntoView({ block: "center" });
+    // The chapter's iframe first, then the sentence inside it: in the book's
+    // one continuous scroll, centring the iframe would only land us in the
+    // middle of the chapter, and the sentence is what should be centred.
     doc.defaultView?.frameElement?.scrollIntoView?.({ block: "center" });
+    mark.ps.el.scrollIntoView({ block: "center" });
   }
 }
 
@@ -448,15 +366,14 @@ export async function ensureSentenceDoc(
   return null;
 }
 
-function clearWord(): void {
-  if (painted?.unpaintWord) {
-    painted.unpaintWord();
-    painted.unpaintWord = null;
-  }
-}
+// --- surviving a re-render --------------------------------------------
 
-function clearPaint(): void {
-  clearWord();
-  if (painted?.unpaintSent) painted.unpaintSent();
-  painted = null;
+/**
+ * epub.js re-rendered the chapter — a resize re-lays out the page, and
+ * hiding the sidebar resizes it. The old document (and everything we
+ * painted in it) is gone, so put the highlight back in the new one and let
+ * the audio clock re-anchor the word on its next frame.
+ */
+export function rerender(doc: Document): void {
+  if (reapply(doc)) wordIdx = -1;
 }

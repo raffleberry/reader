@@ -4,15 +4,9 @@ __pycache__/
 .venv/
 dist/
 node_modules/
-src/ui/dist/
-src/ui/dist-demo/
+src/ui/.output/
+src/ui/.wxt/
 src/ui/test-results/
 src/ui/playwright-report/
 build/
 reader.spec
-storage/uploads/*
-storage/cache/*
-storage/books.json
-!storage/.gitkeep
-!storage/uploads/.gitkeep
-!storage/cache/.gitkeep

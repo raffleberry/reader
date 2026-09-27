@@ -1,30 +1,38 @@
 {
-  "name": "reader-web",
+  "name": "reader-extension",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "Reader — read EPUB books aloud, as a browser extension.",
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
-    "build:demo": "VITE_DEMO=1 vue-tsc --noEmit && VITE_DEMO=1 vite build --base ./ --outDir dist-demo --emptyOutDir",
-    "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit",
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox --mv3",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox --mv3",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox --mv3",
+    "postinstall": "wxt prepare",
+    "typecheck": "wxt prepare && vue-tsc --noEmit",
+    "test": "vitest run",
     "e2e": "playwright test"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.8.0",
     "bootstrap": "^5.3.8",
-    "idb": "^8.0.3",
     "jszip": "^3.10.2",
     "pinia": "^3.0.0",
     "vue": "^3.4.0",
-    "vue-reader": "^1.3.8",
-    "vue-router": "^4.4.0"
+    "vue-reader": "^1.3.8"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@vitejs/plugin-vue": "^5.0.0",
+    "@types/node": "^26.6.3",
+    "@wxt-dev/auto-icons": "^1.1.2",
+    "@wxt-dev/module-vue": "^1.0.3",
+    "jsdom": "26",
     "typescript": "^5.9",
-    "vite": "^6.0.0",
-    "vue-tsc": "^3.3.11"
+    "vitest": "^5.0.2",
+    "vue-tsc": "^3.3.11",
+    "wxt": "^0.21.4"
   }
 }
