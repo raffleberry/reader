@@ -9,7 +9,7 @@
  */
 import { browser } from "wxt/browser";
 
-/** The native-messaging host name. The Go server installs itself under it. */
+/** The native-messaging host name. The Go helper installs itself under it. */
 export const HOST = "com.raffleberry.epubreader";
 
 /** Where to get the speech helper when it isn't installed. */

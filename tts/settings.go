@@ -1,5 +1,5 @@
-// Package main is the EPUB Reader speech server: a tray application that
-// is also a self-installing native-messaging host.
+// Package main is the EPUB Reader speech server: a self-installing
+// native-messaging host.
 //
 // The browser extension holds the books and drives playback; this process
 // only turns plain text into spoken audio. It keeps a small on-disk cache
@@ -16,6 +16,9 @@ import (
 const (
 	// Version of the speech server. The extension's probe reports it.
 	Version = "1.0.0"
+	// Vendor namespaces on-disk dirs so a generic name like epub-reader
+	// cannot collide with another author's folder.
+	Vendor = "raffleberry.github.io"
 	// App is the display name and the on-disk directory base.
 	App = "epub-reader"
 	// Host is the native-messaging host name shared with the extension.
@@ -42,9 +45,36 @@ type Settings struct {
 	Voice     string `json:"voice"`
 }
 
-// cacheBase returns the system cache dir, creating it. Tests and power
-// users can point it elsewhere with EPUB_READER_CACHE_DIR.
-func cacheBase() (string, error) {
+// appConfigDir is the home for the installed binary plus everything
+// persistent the helper reads and writes (settings, lock, heartbeat):
+// os.UserConfigDir / Vendor / App. Tests can redirect it with
+// EPUB_READER_CONFIG_DIR.
+func appConfigDir() (string, error) {
+	if override := os.Getenv("EPUB_READER_CONFIG_DIR"); override != "" {
+		if err := os.MkdirAll(override, 0o755); err != nil {
+			return "", err
+		}
+		return override, nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil || base == "" {
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			return "", fmt.Errorf("no config dir: %v", err)
+		}
+		base = filepath.Join(home, ".config")
+	}
+	dir := filepath.Join(base, Vendor, App)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// appCacheDir is the home for disposable bytes:
+// os.UserCacheDir / Vendor / App. Tests can redirect it with
+// EPUB_READER_CACHE_DIR (shared with cacheBase).
+func appCacheDir() (string, error) {
 	if override := os.Getenv("EPUB_READER_CACHE_DIR"); override != "" {
 		if err := os.MkdirAll(override, 0o755); err != nil {
 			return "", err
@@ -59,7 +89,27 @@ func cacheBase() (string, error) {
 		}
 		base = filepath.Join(home, ".cache")
 	}
-	dir := filepath.Join(base, App, "tts")
+	dir := filepath.Join(base, Vendor, App)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// cacheBase returns the TTS cache dir, creating it. Tests and power
+// users can point it elsewhere with EPUB_READER_CACHE_DIR.
+func cacheBase() (string, error) {
+	if override := os.Getenv("EPUB_READER_CACHE_DIR"); override != "" {
+		if err := os.MkdirAll(override, 0o755); err != nil {
+			return "", err
+		}
+		return override, nil
+	}
+	dir, err := appCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Join(dir, "tts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -67,7 +117,8 @@ func cacheBase() (string, error) {
 }
 
 // configFile returns the settings file path, creating its parent. Tests can
-// point it at a temp file with EPUB_READER_CONFIG_FILE.
+// point it at a temp file with EPUB_READER_CONFIG_FILE, or redirect the
+// whole config dir with EPUB_READER_CONFIG_DIR.
 func configFile() (string, error) {
 	if override := os.Getenv("EPUB_READER_CONFIG_FILE"); override != "" {
 		if err := os.MkdirAll(filepath.Dir(override), 0o755); err != nil {
@@ -75,16 +126,8 @@ func configFile() (string, error) {
 		}
 		return override, nil
 	}
-	base, err := os.UserConfigDir()
-	if err != nil || base == "" {
-		home, herr := os.UserHomeDir()
-		if herr != nil {
-			return "", fmt.Errorf("no config dir: %v", err)
-		}
-		base = filepath.Join(home, ".config")
-	}
-	dir := filepath.Join(base, App)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	dir, err := appConfigDir()
+	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "settings.json"), nil

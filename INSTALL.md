@@ -34,22 +34,23 @@ download the helper for your computer:
 - Windows: `epub-reader-windows-amd64.exe`
 - Linux: `epub-reader-linux-amd64`
 
-It is one file. Put it somewhere it can stay (for example your home
-folder or `~/bin`) — the browser will look for it exactly where it is
-now, so don't run it from Downloads and delete it later.
+It is one file, and you can run it from anywhere: on its first run it
+copies itself into its own folder and registers with the browsers, so
+don't worry about where the download landed.
 
 ## 3. Run it once
 
-Double-click it (or run it from a terminal). On its first run it:
+Double-click it (or run it from a terminal). A terminal window walks
+through the install:
 
-1. installs itself as the browser's speech helper,
-2. shows a small book icon in the system tray,
-3. tells you it is installed — and that is the whole setup.
+1. where the helper file is kept,
+2. every browser registration it writes (or leaves unchanged),
+3. `Installed.` — and that is the whole setup.
 
-**You never need to run it again.** Leave the tray icon or quit it;
-either way, pressing play in the reader starts the helper automatically
-and it closes itself when the browser is done with it. If you move the
-file later, just run it once more from its new home.
+**You never need to run it again.** Pressing play in the reader starts
+the helper automatically and it closes itself when the browser is done
+with it. Running it again later just re-installs (that is also how
+updates work: download the new file, run it once).
 
 ## Everyday use
 
@@ -58,19 +59,17 @@ file later, just run it once more from its new home.
   cached on your computer and replays instantly — and offline.
 - The reader badge says `speech ready` when the helper answers. If it
   says `no speech helper`, the page tells you where to get it.
-- The tray icon is optional day to day: click it for a status note, or
-  open its menu to reinstall the helper, clear cached speech, open the
-  cache folder, or quit.
 
 Voice, cache size, speed and the rest live in the reader's own settings
 (the sidebar, or the extension's options page) — the helper has no
-window of its own.
+window of its own: running it just installs it and exits.
 
 ## Troubleshooting
 
 **"No speech helper" after installing.** Run the helper once more (step
-3) — installing is what that first run does. Then press *Retry* in the
-reader. If it still says no, check the file hasn't moved since.
+3) — installing is what that first run does — and read what the
+terminal says: it names every registration it wrote. Then press
+*Retry* in the reader.
 
 **Chrome loaded unpacked says no, but Firefox works.** Unpacked Chrome
 extensions get a per-machine id, and the helper allow-lists the ids it
@@ -87,24 +86,22 @@ helper already.
 **Windows SmartScreen / macOS "unidentified developer".** The helper is
 unsigned, so the first run may need an explicit allow: Windows →
 *More info → Run anyway*; macOS → System Settings → Privacy & Security →
-*Open Anyway* (or `xattr -d com.apple.quarantine epub-reader-…`).
-
-**Linux tray icon missing.** The helper works without it (speech still
-auto-starts), the icon just has nowhere to sit on some minimal
-desktops. Everything else — including `--install` — works headless.
+*Open Anyway* (or `xattr -d com.apple.quarantine epub-reader-…*).
 
 **One helper, several browsers.** Installing registers it for Chrome,
 Edge, Brave, Chromium *and* Firefox at once. Run once, use anywhere.
 
 ## Uninstall
 
-1. Run `epub-reader --uninstall` (removes the browser registration).
-2. Delete the file.
+1. Run `epub-reader --uninstall` (removes the browser registration;
+   the installed helper file is left in place — delete that folder too
+   if you want everything gone).
+2. Delete the download, if you still have it.
 3. Remove the extension from the browser.
 4. Optionally delete cached speech and settings:
-   - Linux: `~/.cache/epub-reader`, `~/.config/epub-reader`
-   - macOS: `~/Library/Caches/epub-reader`, `~/Library/Application Support/epub-reader`
-   - Windows: `%LOCALAPPDATA%\epub-reader`, `%APPDATA%\epub-reader`
+   - Linux: `~/.cache/raffleberry.github.io/epub-reader`, `~/.config/raffleberry.github.io/epub-reader`
+   - macOS: `~/Library/Caches/raffleberry.github.io/epub-reader`, `~/Library/Application Support/raffleberry.github.io/epub-reader`
+   - Windows: `%LOCALAPPDATA%\raffleberry.github.io\epub-reader`, `%APPDATA%\raffleberry.github.io\epub-reader`
 
 ## Privacy in one paragraph
 

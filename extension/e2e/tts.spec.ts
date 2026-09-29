@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 test.describe.configure({ mode: "serial" });
 
 /** The Go module, two levels up from extension/e2e/. */
-const SERVER = new URL("../../server", import.meta.url).pathname;
+const TTS = new URL("../../tts", import.meta.url).pathname;
 
 function haveGo(): boolean {
   return !spawnSync("go", ["version"], { stdio: "ignore" }).error;
@@ -36,7 +36,7 @@ test.beforeAll(() => {
   const dir = mkdtempSync(join(tmpdir(), "epub-reader-e2e-"));
   scratch.push(dir);
   bin = join(dir, "epub-reader");
-  execFileSync("go", ["build", "-o", bin, "."], { cwd: SERVER, stdio: "inherit" });
+  execFileSync("go", ["build", "-o", bin, "."], { cwd: TTS, stdio: "inherit" });
   const profile = mkdtempSync(join(tmpdir(), "epub-reader-profile-"));
   scratch.push(profile);
   env = {

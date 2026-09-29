@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +54,82 @@ func exePath() (string, error) {
 	return filepath.Clean(exe), nil
 }
 
+// binaryName is the on-disk file name of the installed helper.
+func binaryName() string {
+	if runtime.GOOS == "windows" {
+		return App + ".exe"
+	}
+	return App
+}
+
+// installedBinaryPath is where --install keeps the helper:
+// os.UserConfigDir / Vendor / App / binaryName. Manifests point here so
+// the user cannot break speech by deleting the download folder. Tests can
+// redirect the whole config dir with EPUB_READER_CONFIG_DIR.
+func installedBinaryPath() (string, error) {
+	dir, err := appConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, binaryName()), nil
+}
+
+// installBinaryFrom copies src to the installed location, always
+// overwriting (that is the update path). Identical content skips the
+// write; the copy is atomic (temp file + rename) with the executable bit
+// set. Same-path source is a no-op.
+func installBinaryFrom(src string) (string, error) {
+	dest, err := installedBinaryPath()
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(src) == filepath.Clean(dest) {
+		return dest, nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	raw, err := io.ReadAll(in)
+	if err != nil {
+		return "", err
+	}
+	if cur, rerr := os.ReadFile(dest); rerr == nil && bytes.Equal(cur, raw) {
+		return dest, nil // already current; nothing to do
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".epub-reader-bin-*")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", err
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return "", err
+	}
+	if err := os.Rename(tmpName, dest); err != nil {
+		// Windows cannot rename over a running exe: drop the old file
+		// first, then retry once before giving up.
+		_ = os.Remove(dest)
+		if rerr := os.Rename(tmpName, dest); rerr != nil {
+			os.Remove(tmpName)
+			return "", fmt.Errorf("replace %s (quit the running helper first): %v", dest, rerr)
+		}
+	}
+	_ = os.Chmod(dest, 0o755)
+	return dest, nil
+}
+
 // hostDirs lists every native-messaging directory to write on this OS.
 func hostDirs() []string {
 	home, _ := os.UserHomeDir()
@@ -92,39 +170,73 @@ func hostDirs() []string {
 	return dirs
 }
 
-// installHost writes the manifest everywhere browsers look and, on Windows,
-// points the registry at it. It reports whether anything changed.
-func installHost(chromeIDs []string) (changed bool, err error) {
-	exe, err := exePath()
+// manifestOutcome is one manifest write attempt, for the terminal report.
+type manifestOutcome struct {
+	dir string
+	// wrote reports the file was created or updated.
+	wrote bool
+	// skipped explains why nothing was written: "unchanged", or the
+	// error text when the directory was unusable.
+	skipped string
+}
+
+// installHostReport copies the running binary to the installed location
+// (overwriting: that is the update path) and writes the manifest
+// everywhere browsers look and, on Windows, points the registry at it.
+// It reports each step so a terminal launch can show what happened.
+func installHostReport(chromeIDs []string) (binary string, outcomes []manifestOutcome, changed bool, err error) {
+	src, err := exePath()
 	if err != nil {
-		return false, err
+		return "", nil, false, err
+	}
+	exe, err := installBinaryFrom(src)
+	if err != nil {
+		return "", nil, false, err
 	}
 	raw, err := manifestBytes(exe, chromeIDs)
 	if err != nil {
-		return false, err
+		return exe, nil, false, err
 	}
 	filename := Host + ".json"
 	for _, dir := range hostDirs() {
+		out := manifestOutcome{dir: dir}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			continue // a missing profile root is not fatal
+			out.skipped = err.Error() // a missing profile root is not fatal
+			outcomes = append(outcomes, out)
+			continue
 		}
 		target := filepath.Join(dir, filename)
 		cur, rerr := os.ReadFile(target)
 		if rerr == nil && string(cur) == string(raw) {
+			out.skipped = "unchanged"
+			outcomes = append(outcomes, out)
 			continue
 		}
 		if werr := os.WriteFile(target, raw, 0o644); werr != nil {
+			out.skipped = werr.Error()
+			outcomes = append(outcomes, out)
 			continue
 		}
+		out.wrote = true
 		changed = true
+		outcomes = append(outcomes, out)
 	}
 	if runtime.GOOS == "windows" {
 		if werr := installRegistry(); werr != nil {
-			return changed, werr
+			return exe, outcomes, changed, werr
 		}
 		changed = true
 	}
-	return changed, nil
+	return exe, outcomes, changed, nil
+}
+
+// installHost copies the running binary to the installed location
+// (overwriting: that is the update path) and writes the manifest
+// everywhere browsers look and, on Windows, points the registry at it.
+// It reports whether anything changed.
+func installHost(chromeIDs []string) (changed bool, err error) {
+	_, _, changed, err = installHostReport(chromeIDs)
+	return changed, err
 }
 
 // uninstallHost removes every manifest this tool may have written.
@@ -148,39 +260,4 @@ func uninstallHost() {
 	if runtime.GOOS == "windows" {
 		_ = uninstallRegistry()
 	}
-}
-
-// installedAlready reports whether at least one manifest points at this exe.
-func installedAlready() bool {
-	exe, err := exePath()
-	if err != nil {
-		return false
-	}
-	filename := Host + ".json"
-	for _, dir := range hostDirs() {
-		raw, err := os.ReadFile(filepath.Join(dir, filename))
-		if err != nil {
-			continue
-		}
-		var m manifest
-		if json.Unmarshal(raw, &m) != nil {
-			continue
-		}
-		if m.Name == Host && filepath.Clean(m.Path) == exe {
-			return true
-		}
-	}
-	return false
-}
-
-func manifestPreview(chromeIDs []string) string {
-	exe, err := exePath()
-	if err != nil {
-		exe = "<exe>"
-	}
-	raw, err := manifestBytes(exe, chromeIDs)
-	if err != nil {
-		return ""
-	}
-	return fmt.Sprintf("%s\n  in:\n  - %s", raw, strings.Join(hostDirs(), "\n  - "))
 }

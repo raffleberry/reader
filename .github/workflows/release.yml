@@ -73,9 +73,9 @@ jobs:
         with:
           go-version: "1.25"
       - run: go vet ./... && go test ./...
-        working-directory: server
+        working-directory: tts
       - run: go build -o epub-reader-${{ matrix.goos }}-amd64${{ matrix.suffix }} .
-        working-directory: server
+        working-directory: tts
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: amd64
@@ -83,7 +83,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: helper-${{ matrix.goos }}-${{ needs.tag.outputs.tag }}
-          path: server/epub-reader-*
+          path: tts/epub-reader-*
 
   publish:
     needs: [tag, extension, helper]

@@ -6,12 +6,13 @@ default:
 # Install everything (go toolchain + js deps via bun).
 setup:
     go version
-    cd server && go mod download
+    cd tts && go mod download
     cd extension && bun install
 
-# Run the speech helper in tray mode (installs its native-messaging host).
-server:
-    cd server && go run . --tray
+# Run the speech helper: installs it with a running commentary and exits.
+# (Nothing stays running; the browser starts the helper itself for speech.)
+tts:
+    cd tts && go run .
 
 # Install the speech helper for extension dev. Chrome dev builds get a fresh
 # id per machine: pass it so the browser will talk to the helper, e.g.
@@ -20,7 +21,7 @@ server:
 host-install ID="":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ -n "{{ID}}" ]; then cd server && go run . --install --extension-id "{{ID}}"; else cd server && go run . --install; fi
+    if [ -n "{{ID}}" ]; then cd tts && go run . --install --extension-id "{{ID}}"; else cd tts && go run . --install; fi
 
 # Run the extension in dev mode (opens a browser with it loaded).
 ext:
@@ -44,7 +45,7 @@ zip:
 
 # Quick verification: go tests + UI unit tests + typecheck + extension build.
 check:
-    cd server && go vet ./... && go test ./...
+    cd tts && go vet ./... && go test ./...
     cd extension && bun run test
     cd extension && bun run typecheck
     cd extension && bun run build
@@ -59,16 +60,16 @@ package:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p dist
-    (cd server && go build -o ../dist/epub-reader .)
+    (cd tts && go build -o ../dist/epub-reader .)
 
 # Portable helpers for Linux + Windows (needs zig or mingw for cgo-free
-# cross builds; systray is pure Go, so plain GOOS suffices).
+# cross builds; the helper is pure Go, so plain GOOS suffices).
 package-all:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p dist
-    (cd server && GOOS=linux GOARCH=amd64 go build -o ../dist/epub-reader-linux-amd64 .)
-    (cd server && GOOS=windows GOARCH=amd64 go build -o ../dist/epub-reader-windows-amd64.exe .)
+    (cd tts && GOOS=linux GOARCH=amd64 go build -o ../dist/epub-reader-linux-amd64 .)
+    (cd tts && GOOS=windows GOARCH=amd64 go build -o ../dist/epub-reader-windows-amd64.exe .)
 
 # Remove build output and caches.
 clean:

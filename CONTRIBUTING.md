@@ -10,7 +10,7 @@ EPUB Reader is two halves that never share state:
 
 - **The extension** (`extension/`) holds the book, renders it, and drives playback.
   It stores settings and one "where I was" note per book. Nothing else.
-- **The helper** (`server/`, Go) turns text into audio. It is told the
+- **The helper** (`tts/`, Go) turns text into audio. It is told the
   text of the sentence being read and nothing else — no book, no filename, no
   reading history.
 
@@ -23,8 +23,7 @@ the reader says where to get it and links to [INSTALL.md](INSTALL.md).
 - Extension: Vue 3 + Pinia (setup stores) + TypeScript (`<script setup>`),
   Bootstrap, **WXT** (Vite under the hood), `bun`. EPUBs render with
   `vue-reader` (epub.js).
-- Helper: Go + [`edge-tts-go`](https://github.com/raffleberry/edge-tts-go) +
-  [`gogpu/systray`](https://github.com/gogpu/systray) for the tray icon.
+- Helper: Go + [`edge-tts-go`](https://github.com/raffleberry/edge-tts-go).
 - Task runner: `just`. Go deps: `go mod`. JS deps: `bun`.
 
 ### Layout
@@ -53,24 +52,24 @@ extension/          # the browser extension (WXT root)
   test/             # vitest specs
   e2e/              # playwright specs (built extension + the real helper)
   fixtures/         # sample.epub, used by the e2e tests
-server/             # the speech helper (Go module)
-  main.go           # flags + mode dispatch (tray vs native host vs install)
+tts/                # the speech helper (Go module)
+  main.go           # flags + mode dispatch (install vs native host)
   native.go         # length-prefixed stdio loop + method dispatch
   tts.go            # edge-tts synthesis + cached ensure()
   cache.go          # bounded on-disk MP3+timings LRU
   settings.go       # validated JSON settings in the system config dir
-  install.go        # manifest install/uninstall for every browser
-  tray.go           # systray icon: auto-install on first run, cache menu
+  install.go        # self-copy + manifest install/uninstall for every browser
 ```
 
-### Helper (`server/`)
+### Helper (`tts/`)
 
-- **Modes.** One binary, three jobs: default launch with a terminal goes to
-  the tray (and installs the native-messaging manifest on first run);
-  launched by the browser (stdin is a pipe, or `--native-host`) it serves
-  one native-messaging session on stdin/stdout until EOF and exits;
-  `--install` / `--uninstall` only (un)register and exit. `--tray` forces
-  tray mode; `--extension-id ID` (repeatable, or
+- **Modes.** One binary, two jobs: launched by the user (a terminal, or
+  `--install`) it installs itself — self-copy plus the
+  native-messaging manifest for every browser — with a per-manifest
+  report, then exits; launched by the browser (stdin is a pipe, or
+  `--native-host`) it serves one native-messaging session on
+  stdin/stdout until EOF and exits. `--uninstall` only unregisters and
+  exits. `--extension-id ID` (repeatable, or
   `EPUB_READER_EXTENSION_IDS`) authorises extra Chrome unpacked ids.
 - **Protocol.** 4-byte little-endian length + JSON. Request
   `{"id":1,"method":"speak","params":{"text":"…"}}`; response
@@ -195,7 +194,8 @@ server/             # the speech helper (Go module)
 
 ## Commands (`just` is truth; don't invent)
 
-- `setup` (go mod download + bun install) · `server` (tray) ·
+- `setup` (go mod download + bun install) · `tts` (run the helper:
+  installs with a report, then exits) ·
   `host-install [ID]` (register the helper for dev) · `ext` / `ext-firefox`
   (wxt dev, opens a browser with the extension)
 - `build` (`.output/chrome-mv3`) · `build-firefox` (`.output/firefox-mv3`) ·
@@ -207,7 +207,7 @@ server/             # the speech helper (Go module)
 
 ## Tests
 
-`server/*_test.go` — settings validation, the LRU (eviction, trim, clear),
+`tts/*_test.go` — settings validation, the LRU (eviction, trim, clear),
 the native framing and method dispatch over pinned temp dirs.
 Offline-safe: the speech service is never called.
 

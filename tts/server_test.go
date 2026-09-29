@@ -237,3 +237,70 @@ func TestDispatchCacheStats(t *testing.T) {
 		t.Fatalf("stats = %+v", res)
 	}
 }
+
+// --- home dirs (Vendor / App namespacing) ---
+
+func TestVendorDirLayout(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("EPUB_READER_CONFIG_DIR", "")
+	t.Setenv("EPUB_READER_CONFIG_FILE", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+	dir, err := appConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(tmp, "config", Vendor, App)
+	if dir != want {
+		t.Fatalf("config dir = %q, want %q", dir, want)
+	}
+	dest, err := installedBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dest != filepath.Join(want, binaryName()) {
+		t.Fatalf("binary path = %q", dest)
+	}
+	cf, err := configFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cf != filepath.Join(want, "settings.json") {
+		t.Fatalf("config file = %q", cf)
+	}
+}
+
+func TestInstallBinaryOverwrites(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("EPUB_READER_CONFIG_DIR", filepath.Join(tmp, "cfg"))
+	src := filepath.Join(tmp, "src-bin")
+	if err := os.WriteFile(src, []byte("v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := installBinaryFrom(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(dest); string(raw) != "v1" {
+		t.Fatalf("dest = %q", raw)
+	}
+	if fi, err := os.Stat(dest); err != nil || fi.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("dest not executable: %+v %v", fi, err)
+	}
+	if err := os.WriteFile(src, []byte("v2-longer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest2, err := installBinaryFrom(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dest2 != dest {
+		t.Fatalf("dest moved: %q vs %q", dest2, dest)
+	}
+	if raw, _ := os.ReadFile(dest); string(raw) != "v2-longer" {
+		t.Fatalf("not overwritten: %q", raw)
+	}
+	if _, err := installBinaryFrom(src); err != nil {
+		t.Fatal(err) // identical content is a no-op, not an error
+	}
+}

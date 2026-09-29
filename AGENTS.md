@@ -4,17 +4,17 @@ EPUB Reader + read-aloud, as a browser extension (WXT, MV3) plus a Go speech hel
 
 ## Commands (`just` is truth; don't invent)
 
-- `setup` (go mod download + bun install) · `server` (tray) · `host-install [ID]` (register the helper for dev) · `ext` / `ext-firefox` (wxt dev, opens a browser with the extension)
+- `setup` (go mod download + bun install) · `tts` (run the helper: installs with a report, then exits) · `host-install [ID]` (register the helper for dev) · `ext` / `ext-firefox` (wxt dev, opens a browser with the extension)
 - `build` → extension/.output/chrome-mv3 · `build-firefox` → .output/firefox-mv3 · `zip` (both store archives) · `check` (go vet + go test + vitest + vue-tsc + build) · `e2e` (playwright vs the built extension + the real binary; first time: `bun x playwright install chromium`) · `package` (go build → dist/epub-reader) · `package-all` (linux + windows)
 - JS CLI runs under bun (`bun x wxt …`); no node/npm in this environment.
 
-## Helper (`server/`, Go module `github.com/raffleberry/reader/server`)
+## Helper (`tts/`, Go module `github.com/raffleberry/reader/tts`)
 
-- One binary, three jobs: tray (default with a terminal; auto-installs the manifest on first run via `gogpu/systray`), native host (`--native-host` or stdin-is-a-pipe: length-prefixed stdio loop until EOF, then exit), `--install`/`--uninstall`. `--extension-id` (repeatable) + `EPUB_READER_EXTENSION_IDS` authorise Chrome unpacked ids; Firefox's `reader@raffleberry.github.io` is built in. Host name `com.raffleberry.epubreader`, app `epub-reader`.
+- One binary, two jobs: user launch (a terminal install with a per-manifest report, then exit; nothing stays running), native host (`--native-host` or stdin-is-a-pipe: length-prefixed stdio loop until EOF, then exit), plus `--install`/`--uninstall`. `--extension-id` (repeatable) + `EPUB_READER_EXTENSION_IDS` authorise Chrome unpacked ids; Firefox's `reader@raffleberry.github.io` is built in. Host name `com.raffleberry.epubreader`, app `epub-reader`. No GUI, no tray: there is no `--tray` flag (it exits with a pointer to just run the binary).
 - Methods: `ping` (`{ok, version}`), `getSettings`/`putSettings`, `cacheStats`/`clearCache`, `speak {text, voice?}` (base64 MP3 + words), `ttsWords`, `prefetch {texts}` (first 20, junk skipped). Speech fail → `ok:false`.
 - Settings: validated JSON (`cache_mb` 10-2000, `readahead` 0-10, voice str) in the system config dir; `saveSettings` re-trims the cache. `Lru` = bounded on-disk MP3+timings cache keyed `sha1(voice+text)`; `cacheStore()` rebuilds when the base changes so tests pin temp dirs via `EPUB_READER_CACHE_DIR` / `EPUB_READER_CONFIG_FILE`.
 - Speech via `github.com/raffleberry/edge-tts-go` (`NewCommunicate` + `Stream`, `WordBoundary`; ticks/10000 = ms).
-- Dirs: `~/.cache/epub-reader/tts`, `~/.config/epub-reader/settings.json` (Linux; OS dirs elsewhere).
+- Dirs: `~/.cache/raffleberry.github.io/epub-reader/tts`, `~/.config/raffleberry.github.io/epub-reader/` (binary + `settings.json`) on Linux; OS dirs elsewhere.
 
 ## Extension (`extension/`, WXT + bun, TS `<script setup>`, Bootstrap; custom CSS in src/assets/app.css)
 
@@ -33,9 +33,9 @@ EPUB Reader + read-aloud, as a browser extension (WXT, MV3) plus a Go speech hel
 
 ## Tests
 
-`server/*_test.go` — settings, LRU, native framing + dispatch over pinned temp dirs; offline-safe, speech never touched.
+`tts/*_test.go` — settings, LRU, native framing + dispatch over pinned temp dirs; offline-safe, speech never touched.
 `extension/test/` — vitest: `locate` (sentence/word paints), `mark` (the highlight survives a re-rendered document), `player` (`ensureSentenceDoc` with a fake rendition), `selection` (read-from-here DOM position), `settings` (voices, per-theme highlight CSS, per-theme link colours incl. contrast + `!important`, rate clamp/persist, helper state), `serve` (native routing, shared port, helper errors, `ServerDown`, `reportDown`), `shelf` (fingerprint, LRU cap, nothing book-shaped stored), `marks` (bookmarks per book, newest first, per-book cap, a dropped book takes its bookmarks, a bookmark holds only an index + a short excerpt). `test/blob.ts` shims `Blob.arrayBuffer()` (jsdom lacks it).
-`extension/e2e/` — `extension.spec.ts` vs `.output/chrome-mv3` in a persistent context (manifest permissions, toolbar opens the reader, missing helper reported honestly + play disabled, hiding the sidebar re-renders the chapter and Reader re-hooks it, picked EPUB renders and leaves only a `shelf` entry, one continuous scroll + selection→bookmark→counted→deleted with the book) + `server.spec.ts` (builds the real Go binary, talks framed native JSON at it: ping, settings, validation, prefetch — skipped without Go). `e2e/chapter.ts` holds the frame helpers: several chapter documents are live at once, so a test must pick the frame it means (`proseFrame`, `frameWith`, `replacedFrame`) and a chapter's own coordinates say nothing about the viewport — add the iframe's offset.
+`extension/e2e/` — `extension.spec.ts` vs `.output/chrome-mv3` in a persistent context (manifest permissions, toolbar opens the reader, missing helper reported honestly + play disabled, hiding the sidebar re-renders the chapter and Reader re-hooks it, picked EPUB renders and leaves only a `shelf` entry, one continuous scroll + selection→bookmark→counted→deleted with the book) + `tts.spec.ts` (builds the real Go binary, talks framed native JSON at it: ping, settings, validation, prefetch — skipped without Go). `e2e/chapter.ts` holds the frame helpers: several chapter documents are live at once, so a test must pick the frame it means (`proseFrame`, `frameWith`, `replacedFrame`) and a chapter's own coordinates say nothing about the viewport — add the iframe's offset.
 
 ## Guidance
 

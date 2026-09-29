@@ -198,7 +198,7 @@ var (
 func cacheStore() *Lru {
 	base, err := cacheBase()
 	if err != nil {
-		base = filepath.Join(os.TempDir(), App, "tts")
+		base = filepath.Join(os.TempDir(), Vendor, App, "tts")
 	}
 	cacheMu.Lock()
 	defer cacheMu.Unlock()

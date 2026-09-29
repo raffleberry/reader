@@ -15,9 +15,10 @@ forgets them the moment you close the tab.
    - **Firefox** — `about:debugging` → *This Firefox* → *Load Temporary
      Add-on* → pick `manifest.json` from the extracted `.zip`.
 2. **Download the speech helper** from the same page (Windows or Linux).
-   It is one file. **Run it once** — it installs itself and shows a tray
-   icon — and you never need to run it again: the browser starts it
-   whenever you press play, and it quits on its own when you are done.
+   It is one file. **Run it once** — a terminal shows the install
+   step by step and says when it is done — and you never need to run
+   it again: the browser starts it whenever you press play, and it
+   quits on its own when you are done.
 3. **Click EPUB Reader's toolbar button.** It opens a reader tab; choose an
    `.epub` and start reading.
 
