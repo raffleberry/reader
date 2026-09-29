@@ -1,12 +1,8 @@
-__pycache__/
-*.pyc
-.uv/
 .venv/
 dist/
 node_modules/
-src/ui/.output/
-src/ui/.wxt/
-src/ui/test-results/
-src/ui/playwright-report/
+extension/.output/
+extension/.wxt/
+extension/test-results/
+extension/playwright-report/
 build/
-reader.spec

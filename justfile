@@ -1,62 +1,75 @@
-# Reader — task runner (requires `just`: https://just.systems)
+# EPUB Reader — task runner (requires `just`: https://just.systems)
 
 default:
     @just --list
 
-# Install everything (python deps via uv, js deps via bun).
+# Install everything (go toolchain + js deps via bun).
 setup:
-    uv sync --group dev
-    cd src/ui && bun install
+    go version
+    cd server && go mod download
+    cd extension && bun install
 
-# Run the speech server (http://127.0.0.1:8000). The extension finds it.
+# Run the speech helper in tray mode (installs its native-messaging host).
 server:
-    uv run reader.py
+    cd server && go run . --tray
+
+# Install the speech helper for extension dev. Chrome dev builds get a fresh
+# id per machine: pass it so the browser will talk to the helper, e.g.
+# `just host-install abcdefgh...` (see chrome://extensions). Firefox needs
+# no id (its add-on id is stable).
+host-install ID="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "{{ID}}" ]; then cd server && go run . --install --extension-id "{{ID}}"; else cd server && go run . --install; fi
 
 # Run the extension in dev mode (opens a browser with it loaded).
 ext:
-    cd src/ui && bun run dev
+    cd extension && bun run dev
 
-# Speech server + extension dev mode (Ctrl-C stops both).
-dev:
-    uv run reader.py & SERVER_PID=$!; \
-    trap "kill $SERVER_PID" EXIT INT TERM; \
-    cd src/ui && bun run dev
+# Run the extension in dev mode in Firefox.
+ext-firefox:
+    cd extension && bun run dev:firefox
 
-# Build the extension: .output/chrome-mv3 (load unpacked in Chrome).
+# Build the extension: extension/.output/chrome-mv3 (load unpacked in Chrome).
 build:
-    cd src/ui && bun run build
+    cd extension && bun run build
 
-# Build for Firefox: .output/firefox-mv3 (about:debugging → Load Temporary).
+# Build for Firefox: extension/.output/firefox-mv3 (about:debugging → Load Temporary).
 build-firefox:
-    cd src/ui && bun run build:firefox
+    cd extension && bun run build:firefox
 
-# Store-ready archives: .output/*-chrome.zip + .output/*-firefox.zip.
+# Store-ready archives: extension/.output/*-chrome.zip + .output/*-firefox.zip.
 zip:
-    cd src/ui && bun run zip && bun run zip:firefox
+    cd extension && bun run zip && bun run zip:firefox
 
-# Quick verification: python compile + unit tests + UI unit tests + typecheck + build.
+# Quick verification: go tests + UI unit tests + typecheck + extension build.
 check:
-    uv run python -m compileall reader.py tests
-    uv run --group dev pytest -q
-    cd src/ui && bun run test
-    cd src/ui && bun run typecheck
-    cd src/ui && bun run build
+    cd server && go vet ./... && go test ./...
+    cd extension && bun run test
+    cd extension && bun run typecheck
+    cd extension && bun run build
 
-# Browser tests against the built extension (first time: bun x playwright install chromium).
+# Browser + helper tests against the built extension and Go binary
+# (first time: bun x playwright install chromium).
 e2e:
-    cd src/ui && bun run e2e
+    cd extension && bun run e2e
 
-# Portable executable for the current OS (Linux binary / Windows .exe).
-# Output: dist/reader (or dist/reader.exe on Windows).
+# Portable helper for the current OS. Output: dist/epub-reader[-version].
 package:
     #!/usr/bin/env bash
     set -euo pipefail
-    uv run --group packaging pyinstaller --noconfirm --clean --onefile \
-      --name reader \
-      --collect-all edge_tts --collect-all aiohttp \
-      reader.py
+    mkdir -p dist
+    (cd server && go build -o ../dist/epub-reader .)
 
-# Remove build output and python caches.
+# Portable helpers for Linux + Windows (needs zig or mingw for cgo-free
+# cross builds; systray is pure Go, so plain GOOS suffices).
+package-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p dist
+    (cd server && GOOS=linux GOARCH=amd64 go build -o ../dist/epub-reader-linux-amd64 .)
+    (cd server && GOOS=windows GOARCH=amd64 go build -o ../dist/epub-reader-windows-amd64.exe .)
+
+# Remove build output and caches.
 clean:
-    rm -rf src/ui/.output src/ui/.wxt src/ui/node_modules/.vite src/ui/test-results dist build reader.spec
-    find . -name __pycache__ -type d -prune -exec rm -rf {} +
+    rm -rf extension/.output extension/.wxt extension/node_modules/.vite extension/test-results dist

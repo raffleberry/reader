@@ -42,43 +42,51 @@ jobs:
           ref: ${{ needs.tag.outputs.tag }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-        working-directory: src/ui
+        working-directory: extension
       - run: bun run test
-        working-directory: src/ui
+        working-directory: extension
       - run: bun run zip
-        working-directory: src/ui
+        working-directory: extension
       - uses: actions/upload-artifact@v4
         with:
           name: extension
-          path: src/ui/.output/*.zip
+          path: extension/.output/*.zip
 
-  # The speech server, as a self-contained binary.
-  server:
+  # The speech helper, as a self-contained binary (pure Go, no CGO).
+  helper:
     needs: tag
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            suffix: ""
+          - os: windows-latest
+            goos: windows
+            suffix: ".exe"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.tag.outputs.tag }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync --group packaging
-      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --collect-all edge_tts --collect-all aiohttp reader.py
-        if: runner.os != 'Windows'
-      - run: uv run --group packaging pyinstaller --noconfirm --clean --onefile --name reader --collect-all edge_tts --collect-all aiohttp reader.py
-        if: runner.os == 'Windows'
+          go-version: "1.25"
+      - run: go vet ./... && go test ./...
+        working-directory: server
+      - run: go build -o epub-reader-${{ matrix.goos }}-amd64${{ matrix.suffix }} .
+        working-directory: server
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
+          CGO_ENABLED: "0"
       - uses: actions/upload-artifact@v4
         with:
-          name: server-${{ runner.os }}-${{ needs.tag.outputs.tag }}
-          path: dist/reader*
+          name: helper-${{ matrix.goos }}-${{ needs.tag.outputs.tag }}
+          path: server/epub-reader-*
 
   publish:
-    needs: [tag, extension, server]
+    needs: [tag, extension, helper]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

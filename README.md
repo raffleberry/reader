@@ -1,33 +1,31 @@
-# Reader — read your EPUB books aloud, in your browser
+# EPUB Reader — read your EPUB books aloud, in your browser
 
-Reader is a browser extension that opens an `.epub` from your computer, lets
-you read it comfortably, and reads it to you out loud with word-by-word
-highlighting. Speech is made by a small program running on your own machine —
-Reader is the only thing that ever sees your books, and it forgets them the
-moment you close the tab.
+EPUB Reader is a browser extension that opens an `.epub` from your
+computer, lets you read it comfortably, and reads it to you out loud with
+word-by-word highlighting. Speech is made by a small helper on your own
+machine — EPUB Reader is the only thing that ever sees your books, and it
+forgets them the moment you close the tab.
 
-## Get Reader
+## Get EPUB Reader
 
-1. **Install the extension.** Download the archive for your browser from the
-   [releases page](https://github.com/raffleberry/reader/releases/latest) and
-   load it:
+1. **Install the extension** from the
+   [releases page](https://github.com/raffleberry/reader/releases/latest):
    - **Chrome / Edge / Brave / Arc** — `chrome://extensions` → *Developer mode*
      on → *Load unpacked* (or drag the `.zip`'s contents there).
    - **Firefox** — `about:debugging` → *This Firefox* → *Load Temporary
      Add-on* → pick `manifest.json` from the extracted `.zip`.
-2. **Download the speech server** from the same page (Windows or Linux). It is
-   one file, no installation. Start it and leave it running while you listen.
-   It prints something like:
-   ```
-   Reader speech server 1.0.0 on http://127.0.0.1:8000
-   The Reader extension finds it on its own. Ctrl-C to stop.
-   ```
-3. **Click Reader's toolbar button.** It opens a reader tab; choose an `.epub`
-   and start reading.
+2. **Download the speech helper** from the same page (Windows or Linux).
+   It is one file. **Run it once** — it installs itself and shows a tray
+   icon — and you never need to run it again: the browser starts it
+   whenever you press play, and it quits on its own when you are done.
+3. **Click EPUB Reader's toolbar button.** It opens a reader tab; choose an
+   `.epub` and start reading.
 
-Reading works without the server. Only read-aloud needs it, and if it isn't
-running Reader says so plainly — with a link to download it — wherever you
-would have expected to hear something.
+Full walkthrough, troubleshooting and uninstall: [INSTALL.md](INSTALL.md).
+
+Reading works without the helper. Only read-aloud needs it, and if it
+isn't installed EPUB Reader says so plainly — with a link to download
+it — wherever you would have expected to hear something.
 
 ## Your privacy comes first
 
@@ -35,7 +33,7 @@ would have expected to hear something.
   database, not on disk. The file you pick is read into memory, read, and gone
   when you close the tab.
 - **One small note is kept**, per book: the page you stopped on, the chapter,
-  and the sentence being read — about 150 bytes, so Reader can put you back
+  and the sentence being read — about 150 bytes, so EPUB Reader can put you back
   exactly where you were. No text, no cover, no file contents.
 - **Bookmarks are the one text you keep**, and only the lines you marked
   yourself: a short excerpt, so the list still means something with the book
@@ -43,11 +41,12 @@ would have expected to hear something.
   deletes its bookmarks with it.
 - **No account, no tracking, no analytics.** There is nothing to sign into and
   nothing phones home.
-- **The server only makes speech.** It receives the sentence being read, and
+- **The helper only makes speech.** It receives the sentence being read, and
   nothing else: no book, no filename, no reading history. It keeps a cache of
   generated audio on your machine so a sentence is only ever spoken once.
-- **Nothing else can use it.** The server only answers web extensions, so a
-  random website can't spend your speech or read your cache.
+- **Nothing else can use it.** There is no port and no address: the browser
+  starts the helper itself over native messaging, so a random website can't
+  spend your speech or read your cache.
 
 ## Features
 
@@ -55,10 +54,10 @@ would have expected to hear something.
 whole book opens as **one long scroll** — no page turns, and scrolling never
 stops at a chapter edge — and it is never written anywhere.
 
-**Pick up where you stopped.** Choose the same file again and Reader returns you
+**Pick up where you stopped.** Choose the same file again and EPUB Reader returns you
 to the page, and pressing play continues from the sentence the voice was on, not
 the top of the chapter. The start screen keeps a *recently read* list — the
-chapter, how far you got, and how many bookmarks you left in each book. Reader
+chapter, how far you got, and how many bookmarks you left in each book. EPUB Reader
 holds no copy of those books, so there is nothing to open from there: the list is
 a record, and the only thing it can do is forget.
 
@@ -69,7 +68,7 @@ even if you have renamed or moved it — and it goes when you delete the book fr
 the start screen.
 
 **Comfortable reading.** Four themes (light, sepia, dark, Monokai) and adjustable
-text size. Reader repaints every chapter for the theme you picked — its links
+text size. EPUB Reader repaints every chapter for the theme you picked — its links
 too, which are otherwise often a blue that disappears on a dark background. A
 progress bar with a marker for every chapter sits along the bottom, and hovering
 a marker tells you which chapter it is.
@@ -96,6 +95,5 @@ without a connection.
 
 ## Help and source code
 
-Reader is open source. If something isn't working or you have an idea, please
-[open an issue](https://github.com/raffleberry/reader/issues). If you'd like to
-build it yourself or contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
+EPUB Reader is open source. If something isn't working or you have an idea, please
+[open an issue](https://github.com/raffleberry/reader/issues). If you'd like to build it yourself or contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
