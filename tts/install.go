@@ -230,15 +230,6 @@ func installHostReport(chromeIDs []string) (binary string, outcomes []manifestOu
 	return exe, outcomes, changed, nil
 }
 
-// installHost copies the running binary to the installed location
-// (overwriting: that is the update path) and writes the manifest
-// everywhere browsers look and, on Windows, points the registry at it.
-// It reports whether anything changed.
-func installHost(chromeIDs []string) (changed bool, err error) {
-	_, _, changed, err = installHostReport(chromeIDs)
-	return changed, err
-}
-
 // uninstallHost removes every manifest this tool may have written.
 func uninstallHost() {
 	filename := Host + ".json"

@@ -10,7 +10,6 @@ import { ref } from "vue";
 import { defineStore } from "pinia";
 import { onServerDown, probe } from "../ext/serve";
 import * as store from "../ext/settings";
-import { VOICES } from "../api/settings";
 import { applyRate } from "../tts/sound";
 import type { ServerState, ThemeName } from "../types";
 
@@ -18,7 +17,7 @@ import type { ServerState, ThemeName } from "../types";
 export const RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 /** How often to notice a helper that stopped answering while we read. */
-export const HEARTBEAT_MS = 15000;
+const HEARTBEAT_MS = 15000;
 
 function clampRate(n: number): number {
   return Number.isFinite(n) ? Math.min(2, Math.max(0.5, n)) : 1;
@@ -98,10 +97,6 @@ export const usePrefs = defineStore("prefs", () => {
     await store.autoscroll.setValue(on);
   }
 
-  async function setVoice(v: string): Promise<void> {
-    if (VOICES.includes(v)) await store.voice.setValue(v);
-  }
-
   /**
    * Ask the helper how it is. Anything other than an answered ping means
    * "not there" — the extension must never be vague about this.
@@ -156,9 +151,7 @@ export const usePrefs = defineStore("prefs", () => {
     setRate,
     setReadahead,
     setAutoScroll,
-    setVoice,
     checkServer,
-    markDown,
     watchServer,
     ensureServer,
   };

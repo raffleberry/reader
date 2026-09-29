@@ -25,7 +25,7 @@ export interface ParsedBook {
 }
 
 /** Split one paragraph. Dumb on purpose; matches the old backend. */
-export function splitSentences(block: string): string[] {
+function splitSentences(block: string): string[] {
   return block
     .split(/(?<=[.!?…])\s+(?=[A-Z0-9“"(\[])/)
     .map((s) => s.trim())

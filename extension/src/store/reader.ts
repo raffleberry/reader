@@ -220,7 +220,6 @@ export const useReader = defineStore("reader", () => {
     loading,
     error,
     title,
-    pct,
     chapterLabel,
     chapterIndices,
     firstAudible,
@@ -231,7 +230,6 @@ export const useReader = defineStore("reader", () => {
     setPages,
     open,
     close,
-    savePlace,
     scheduleSave,
     flushPlace,
   };

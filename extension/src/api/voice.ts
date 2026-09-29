@@ -33,6 +33,9 @@ async function call(method: string, params: Record<string, unknown>): Promise<un
       throw err;
     }
     // The helper answered with its own complaint (bad text, TTS failure).
+    // Log what we sent: without this the failure leaves no trace anywhere.
+    const text = typeof params.text === "string" ? params.text : "";
+    console.error(`[voice] ${method} failed for ${JSON.stringify(text.slice(0, 80))}:`, err);
     throw err instanceof Error ? err : new Error("request failed");
   }
 }

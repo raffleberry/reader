@@ -222,8 +222,6 @@ let frameRO: ResizeObserver | null = null;
 /** Book-wide page progress (from generated locations). */
 const totalPages = ref(0);
 const curPage = ref(0);
-/** Current spine index (from relocated events); -1 while unknown. */
-const curSpine = ref(-1);
 const locating = ref(false);
 const scrubbing = ref(false);
 const scrubPage = ref(1);
@@ -597,7 +595,6 @@ function trackProgress(rendition: BookRendition): void {
   const run = progressRun;
   totalPages.value = 0;
   curPage.value = 0;
-  curSpine.value = -1;
   scrubbing.value = false;
   locating.value = true;
   const book = rendition.book;
@@ -607,7 +604,6 @@ function trackProgress(rendition: BookRendition): void {
   }
   const onRelocated = (loc: RelocatedLocation): void => {
     if (run !== progressRun) return;
-    curSpine.value = loc.start.index;
     // vue-reader's update:location only carries the CFI string; the full
     // relocated payload is what actually has cfi + href + spine index.
     reader.setLocation(loc.start.cfi, loc.start.href);

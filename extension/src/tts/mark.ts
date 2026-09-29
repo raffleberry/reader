@@ -12,7 +12,7 @@ import { paintSentence, paintWord } from "./locate";
 import type { PaintedSentence } from "./locate";
 
 export const SENT_CLS = "tts-sent";
-export const WORD_CLS = "tts-word";
+const WORD_CLS = "tts-word";
 
 /** One highlighted sentence, and how far through it the words have gone. */
 export class Mark {

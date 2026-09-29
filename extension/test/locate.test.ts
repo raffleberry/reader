@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSentence, flatDoc, paintSentence, paintWord, wordSpans } from "../src/tts/locate";
+import { findSentence, flatDoc, paintSentence, paintWord } from "../src/tts/locate";
 
 /**
  * Sentence/word highlighting (src/tts/locate.ts) against a real DOM. Each
@@ -101,21 +101,4 @@ describe("paintSentence / paintWord", () => {
     ps!.unpaint();
     expect(doc.body.textContent).toBe(before);
   });
-});
-
-it("wordSpans skips unfound words without misaligning the rest", () => {
-  expect(
-    wordSpans("Hello brave new world.", [
-      { text: "Hello" },
-      { text: "—" },
-      { text: "brave" },
-      { text: "new" },
-      { text: "world." },
-    ]),
-  ).toEqual([
-    { start: 0, end: 5 },
-    { start: 6, end: 11 },
-    { start: 12, end: 15 },
-    { start: 16, end: 22 },
-  ]);
 });

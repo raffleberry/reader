@@ -176,7 +176,6 @@ onMounted(async () => {
     const s = await getSettings();
     voice.value = VOICES.includes(s.voice) ? s.voice : VOICES[0];
     cacheMb.value = s.cache_mb;
-    void prefs.setVoice(voice.value);
     await refreshStats();
   } catch (err) {
     if ((err as Error).name === "ServerDown") serverError.value = (err as Error).message;
@@ -190,7 +189,6 @@ async function save(): Promise<void> {
   saved.value = false;
   try {
     await putSettings({ voice: voice.value, cache_mb: cacheMb.value });
-    await prefs.setVoice(voice.value);
     saved.value = true;
   } catch (err) {
     error.value = (err as Error).message;

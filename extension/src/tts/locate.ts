@@ -24,13 +24,8 @@ export interface FlatMap {
   back: number[];
 }
 
-export interface WordSpan {
-  start: number;
-  end: number;
-}
-
 /** Collapse whitespace like the backend does. */
-export function flat(s: string): string {
+function flat(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
@@ -124,7 +119,7 @@ export function findSentence(doc: Document, probe: string): FoundSentence | null
 }
 
 /** Range from norm offsets; null when out of bounds. */
-export function rangeFromNorm(
+function rangeFromNorm(
   doc: Document,
   map: FlatMap,
   fromN: number,
@@ -138,7 +133,7 @@ export function rangeFromNorm(
 }
 
 /** Range from raw offsets; null when out of bounds. */
-export function sliceRaw(
+function sliceRaw(
   doc: Document,
   spans: FlatNode[],
   from: number,
@@ -164,27 +159,6 @@ export function sliceRaw(
   range.setStart(a.node, aOff);
   range.setEnd(b.node, bOff);
   return range;
-}
-
-/**
- * Char spans of spoken words inside a sentence (in order).
- * Words that cannot be found are skipped, never misaligned.
- */
-export function wordSpans(
-  sentence: string,
-  words: { text: string }[],
-): WordSpan[] {
-  const out: WordSpan[] = [];
-  let cursor = 0;
-  for (const w of words) {
-    const bare = w.text.trim();
-    if (!bare) continue;
-    const at = sentence.indexOf(bare, cursor);
-    if (at < 0) continue;
-    out.push({ start: at, end: at + bare.length });
-    cursor = at + bare.length;
-  }
-  return out;
 }
 
 export interface Painted {

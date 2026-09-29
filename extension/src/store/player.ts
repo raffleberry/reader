@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import type { Contents } from "epubjs";
 import { getWords, speakAudio } from "../api/voice";
 import type { Sentence, Word } from "../api/voice";
+import { speakable } from "../text/speak";
 import { downMessage } from "../ext/serve";
 import { applyRate, reload, setSource, sound } from "../tts/sound";
 import { clear as clearMark, current, reapply, show as showMark } from "../tts/mark";
@@ -69,6 +70,9 @@ export const usePlayer = defineStore("player", () => {
    */
   async function playAt(i: number, myRun: number): Promise<void> {
     const reader = useReader();
+    // Scene breaks and other punctuation-only lines ("***", "❦") make the
+    // speech service return no audio at all; skip them instead of failing.
+    while (i < reader.sentences.length && !speakable(reader.sentences[i].text)) i++;
     if (i >= reader.sentences.length) {
       stop();
       return;
@@ -101,6 +105,7 @@ export const usePlayer = defineStore("player", () => {
       if ((phase.value as Phase) === "paused") return;
       phase.value = "error";
       error.value = (err as Error).message;
+      console.error(`[player] playback failed at sentence ${pos.value}:`, err);
     }
   }
 
@@ -143,10 +148,11 @@ export const usePlayer = defineStore("player", () => {
       stopWords();
       phase.value = "error";
       error.value = (err as Error).message;
+      console.error(`[player] resume failed at sentence ${pos.value}:`, err);
     }
   }
 
-  return { phase, pos, error, busy, start, stop, pause, resume, playAt, hardStop };
+  return { phase, pos, error, busy, start, stop, pause, resume };
 });
 
 /** Phase read that narrowing can't second-guess (pause/stop interleave). */
@@ -218,6 +224,7 @@ async function lookahead(from: number, myRun: number): Promise<void> {
   for (let j = from + 1; j <= last; j++) {
     if (ahead.has(j)) continue;
     const sent = reader.sentences[j];
+    if (!speakable(sent.text)) continue;
     jobs.push(
       Promise.all([getWords(sent.text), speakAudio(sent.text)])
         .then(([w, u]) => {
@@ -232,7 +239,9 @@ async function lookahead(from: number, myRun: number): Promise<void> {
           }
           ahead.set(j, { url: u, words: w });
         })
-        .catch(() => undefined),
+        .catch((err: unknown) => {
+          console.warn(`[player] lookahead failed for sentence ${j}:`, err);
+        }),
     );
   }
   await Promise.all(jobs);
