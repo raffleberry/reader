@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EPUB Reader — read your EPUB books aloud, in your browser</title>
+  <meta name="description" content="EPUB Reader is a browser extension that opens an .epub from your computer, lets you read it comfortably, and reads it out loud with word-by-word highlighting. Private by design: books never leave your machine.">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .hero { padding: 4rem 0 3rem; }
+    .screenshot-slot {
+      border: 2px dashed var(--bs-border-color);
+      border-radius: 1rem;
+      min-height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: var(--bs-secondary-color);
+      background: var(--bs-tertiary-bg);
+      padding: 2rem;
+    }
+    .screenshot-slot img { max-width: 100%; border-radius: .5rem; }
+    .feature-icon { font-size: 1.5rem; }
+    footer { padding: 2rem 0; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom sticky-top">
+  <div class="container">
+    <a class="navbar-brand fw-bold" href="#">&#128214; EPUB Reader</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+        <li class="nav-item"><a class="nav-link" href="#features">Features</a></li>
+        <li class="nav-item"><a class="nav-link" href="#install">Install</a></li>
+        <li class="nav-item"><a class="nav-link" href="#screenshots">Screenshots</a></li>
+        <li class="nav-item"><a class="nav-link" href="#support">Support</a></li>
+        <li class="nav-item"><a class="btn btn-primary ms-lg-2" href="https://addons.mozilla.org/en-US/firefox/addon/epub-reader-with-tts/">Get for Firefox</a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<main class="container">
+
+  <!-- Hero -->
+  <section class="hero text-center">
+    <h1 class="display-5 fw-bold">Read your EPUB books aloud, in your browser</h1>
+    <p class="lead col-lg-8 mx-auto">
+      EPUB Reader opens an <code>.epub</code> from your computer, lets you read it
+      comfortably, and reads it to you out loud with word-by-word highlighting.
+      Your books never leave your machine — and are forgotten the moment you close the tab.
+    </p>
+    <div class="d-flex gap-2 justify-content-center flex-wrap mt-4">
+      <a class="btn btn-primary btn-lg" href="https://addons.mozilla.org/en-US/firefox/addon/epub-reader-with-tts/">Get for Firefox</a>
+      <a class="btn btn-outline-secondary btn-lg" href="#install">Other browsers</a>
+    </div>
+    <p class="text-body-secondary mt-3 mb-0">
+      Free and open source &middot; Firefox add-on &middot; More browsers coming soon &middot; No account, no tracking
+    </p>
+  </section>
+
+  <!-- Hero screenshot slot: replace the <p> with <img src="screenshots/reader.png" ...> -->
+  <section class="mb-5">
+    <div class="screenshot-slot">
+      <div>
+        <img src="./Screenshot 2026-09-30 at 01-30-08 EPUB Reader.png" alt="EPUB Reader reading a book" class="img-fluid">
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="py-4">
+    <h2 class="fw-bold mb-4">Features</h2>
+    <div class="row g-3">
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100"><div class="card-body">
+          <div class="feature-icon mb-2">&#128214;</div>
+          <h3 class="h5 card-title">One long scroll</h3>
+          <p class="card-text">The whole book opens as a single continuous scroll — no page turns, and scrolling never stops at a chapter edge.</p>
+        </div></div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100"><div class="card-body">
+          <div class="feature-icon mb-2">&#128266;</div>
+          <h3 class="h5 card-title">Read-aloud with highlighting</h3>
+          <p class="card-text">A natural voice reads each chapter; the sentence lights up, then each word as it is spoken. 47 English voices, half to double speed.</p>
+        </div></div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100"><div class="card-body">
+          <div class="feature-icon mb-2">&#128278;</div>
+          <h3 class="h5 card-title">Pick up where you stopped</h3>
+          <p class="card-text">Reopen the same file and you're back on the page — pressing play continues from the sentence the voice was on.</p>
+        </div></div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100"><div class="card-body">
+          <div class="feature-icon mb-2">&#128278;</div>
+          <h3 class="h5 card-title">Bookmarks</h3>
+          <p class="card-text">Select a passage and mark it. Newest first, click to jump back — they survive renames and moves.</p>
+        </div></div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100"><div class="card-body">
+          <div class="feature-icon mb-2">&#9790;</div>
+          <h3 class="h5 card-title">Comfortable reading</h3>
+          <p class="card-text">Four themes (light, sepia, dark, Monokai), adjustable text size, and a progress bar with a marker per chapter.</p>
+        </div></div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100"><div class="card-body">
+          <div class="feature-icon mb-2">&#128274;</div>
+          <h3 class="h5 card-title">Private by design</h3>
+          <p class="card-text">Books live only in the open tab. The helper only turns text into audio. No account, no tracking, no analytics.</p>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section id="install" class="py-4">
+    <h2 class="fw-bold mb-4">Get EPUB Reader</h2>
+    <ol class="list-group list-group-numbered mb-3">
+      <li class="list-group-item">
+        <strong>Install the extension:</strong>
+        <a href="https://addons.mozilla.org/en-US/firefox/addon/epub-reader-with-tts/">Firefox users install it
+        straight from addons.mozilla.org</a>.
+        Chrome / Edge / Brave / Arc: load it unpacked from the
+        <a href="https://github.com/raffleberry/reader/releases/latest">releases page</a>
+        (<code>chrome://extensions</code> &rarr; Developer mode &rarr; Load unpacked) —
+        store links for other browsers coming soon.
+      </li>
+      <li class="list-group-item">
+        <strong>Download the speech helper</strong> (Windows or Linux) from the same page and
+        <strong>run it once</strong> — a terminal walks you through the install, then you never run it again.
+      </li>
+      <li class="list-group-item">
+        <strong>Click the toolbar button</strong>, choose an <code>.epub</code>, and start reading.
+      </li>
+    </ol>
+    <div class="alert alert-info" role="note">
+      Reading works without the helper. Only read-aloud needs it — and if it isn't installed,
+      EPUB Reader says so plainly, with a download link, wherever you expected to hear something.
+      First listen needs internet; after that audio is cached on your computer.
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section id="screenshots" class="py-4">
+    <h2 class="fw-bold mb-2">Screenshots</h2>
+    <p class="text-body-secondary">Drop your images in a <code>screenshots/</code> folder and swap them into the slots below.</p>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <div class="screenshot-slot">
+          <div>
+            <p class="fw-semibold mb-1">Settings</p>
+            <img src="Screenshot 2026-09-30 at 01-28-48 EPUB Reader.png" alt="Library view" class="img-fluid">
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="screenshot-slot">
+          <div>
+            <p class="fw-semibold mb-1">Reading selection</p>
+            <img src="Screenshot 2026-09-30 at 01-29-59 EPUB Reader.png"Library view" class="img-fluid">
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="screenshot-slot">
+          <div>
+            <p class="fw-semibold mb-1">Reading view + highlighting</p>
+            <img src="Screenshot 2026-09-30 at 01-30-08 EPUB Reader.png" alt="Library view" class="img-fluid">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Support -->
+  <section id="support" class="py-4">
+    <h2 class="fw-bold mb-3">Support</h2>
+    <div class="card border-primary">
+      <div class="card-body">
+        <h3 class="h5 card-title">Need help, found a bug, or have an idea?</h3>
+        <p class="card-text">
+          Please <strong>open an issue on GitHub</strong> — that's the fastest way to get support.
+          Tell us what you were doing, what you expected, and what happened (browser + version help a lot).
+        </p>
+        <a class="btn btn-primary" href="https://github.com/raffleberry/reader/issues">Open an issue</a>
+        <a class="btn btn-outline-secondary" href="https://github.com/raffleberry/reader/issues/new">Report a bug</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="border-top mt-4">
+  <div class="container d-flex flex-wrap gap-2 justify-content-between align-items-center">
+    <span class="text-body-secondary small">EPUB Reader &middot; open source under the <a href="https://github.com/raffleberry/reader/blob/main/LICENSE">MIT license</a></span>
+    <span class="small">
+      <a href="https://github.com/raffleberry/reader">Source</a> &middot;
+      <a href="https://addons.mozilla.org/en-US/firefox/addon/epub-reader-with-tts/">Firefox add-on</a> &middot;
+      <a href="https://github.com/raffleberry/reader/releases/latest">Releases</a> &middot;
+      <a href="https://github.com/raffleberry/reader/issues">Support</a>
+    </span>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

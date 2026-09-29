@@ -8,13 +8,17 @@ forgets them the moment you close the tab.
 
 ## Get EPUB Reader
 
-1. **Install the extension** from the
-   [releases page](https://github.com/raffleberry/reader/releases/latest):
-   - **Chrome / Edge / Brave / Arc** — `chrome://extensions` → *Developer mode*
-     on → *Load unpacked* (or drag the `.zip`'s contents there).
-   - **Firefox** — `about:debugging` → *This Firefox* → *Load Temporary
-     Add-on* → pick `manifest.json` from the extracted `.zip`.
-2. **Download the speech helper** from the same page (Windows or Linux).
+1. **Install the extension:**
+   - **Firefox** — install from
+     [addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/epub-reader-with-tts/).
+   - **Chrome / Edge / Brave / Arc** — from the
+     [releases page](https://github.com/raffleberry/reader/releases/latest):
+     `chrome://extensions` → *Developer mode* on → *Load unpacked*
+     (or drag the `.zip`'s contents there). Store links for other
+     browsers coming soon.
+2. **Download the speech helper** from the
+   [releases page](https://github.com/raffleberry/reader/releases/latest)
+   (Windows or Linux).
    It is one file. **Run it once** — a terminal shows the install
    step by step and says when it is done — and you never need to run
    it again: the browser starts it whenever you press play, and it
@@ -94,7 +98,20 @@ sentence is heard, so that first listen needs internet. After that the audio is
 cached on your computer (100 MB by default, adjustable in Settings) and replays
 without a connection.
 
-## Help and source code
+## Screenshots
 
-EPUB Reader is open source. If something isn't working or you have an idea, please
-[open an issue](https://github.com/raffleberry/reader/issues). If you'd like to build it yourself or contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
+![Library view](docs/Screenshot%202026-09-30%20at%2001-28-11%20EPUB%20Reader.png)
+![Settings Panel](docs/Screenshot%202026-09-30%20at%2001-28-48%20EPUB%20Reader.png)
+![Book View with text selection](docs/Screenshot%202026-09-30%20at%2001-29-59%20EPUB%20Reader.png)
+![Read Aloud with text highlight](docs/Screenshot%202026-09-30%20at%2001-30-08%20EPUB%20Reader.png)
+
+## Support
+
+Need help, found a bug, or have an idea? Please
+[open an issue](https://github.com/raffleberry/reader/issues) — that's the
+fastest way to get support. Tell us what you were doing, what you expected,
+and what happened (your browser + version help a lot).
+
+## Source code
+
+EPUB Reader is open source under the [MIT license](LICENSE). If you'd like to build it yourself or contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
