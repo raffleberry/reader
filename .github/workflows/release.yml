@@ -50,14 +50,22 @@ jobs:
       - run: bun install --frozen-lockfile
         working-directory: extension
       # No unit tests here on purpose: releases just build and publish
-      # (extension tests still run via `just check`). A successful zip
-      # is the gate — if it builds, it ships.
+      # (extension tests still run via `just check`). An explicit build
+      # comes first: `wxt zip` only packages existing build output, so
+      # zipping without building can sail through with no zips at all
+      # (v1.0.2 shipped helper-only that way).
+      - run: bun run build
+        working-directory: extension
+      - run: bun run build:firefox
+        working-directory: extension
       - run: bun run zip
         working-directory: extension
       - run: bun run zip:firefox
         working-directory: extension
-      - run: ls -la .output/
-        working-directory: extension
+      # Prove the zips are visible at the repo-root-relative path the
+      # upload step uses (no working-directory here on purpose): if this
+      # fails, the path is wrong — not the uploader.
+      - run: ls -la extension/.output/ && ls extension/.output/*.zip
       - uses: actions/upload-artifact@v6
         with:
           name: extension
