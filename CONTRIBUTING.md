@@ -203,6 +203,24 @@ tts/                # the speech helper (Go module)
   `bun x playwright install chromium`) · `package` (go build →
   `dist/reader`) · `package-all` (linux + windows)
 
+## Versions
+
+Two versions, both bumped by hand in their own files — nothing
+auto-increments:
+
+- **Extension (the release version):** `extension/package.json` →
+  `"version"`. WXT puts this into the built manifest. Pushing to the
+  `release` branch tags `v<that version>` and publishes it, so bump
+  this for every release — and never push to `release` twice on the
+  same number (the workflow fails if the tag already exists; that is
+  the reminder).
+- **Helper:** `Version` in `tts/settings.go`, reported to the
+  extension via `ping`. It is a plain const baked in at compile time,
+  so editing it before pushing to `release` is enough for the shipped
+  binary to report it. Bump it when the helper changes in a way worth
+  tracking (protocol, settings, install behavior). It ships inside
+  whatever extension release goes out next.
+
 ## Tests
 
 `tts/*_test.go` — settings validation, the LRU (eviction, trim, clear),
