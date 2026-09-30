@@ -1,10 +1,6 @@
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
-github.com/raffleberry/edge-tts-go v0.0.0-20260929142814-e1b3bd8170c4 h1:T7RxskK6Wye8zqsdMnbLynuAFtSSDWN8+a39bbJXA+4=
-github.com/raffleberry/edge-tts-go v0.0.0-20260929142814-e1b3bd8170c4/go.mod h1:Kmapy83EVlcuhHhMeEjBjkwRjvImJqPVvqwwBC/K1og=
-github.com/raffleberry/edge-tts-go v1.0.1 h1:SHFChQ1e2y0Gxj4O/37TNv4fMxwWnhEZOyuo5LIznlY=
-github.com/raffleberry/edge-tts-go v1.0.1/go.mod h1:0qYnRPSkb2Ggpe3CtL9MbXA8oY5+jpnBbXdpHQU1z1s=
 github.com/raffleberry/edge-tts-go v1.0.2 h1:k4Dvcn9zZvgtwp/JT+1bew9u4Zg8QgpCIFlfEf85XP0=
 github.com/raffleberry/edge-tts-go v1.0.2/go.mod h1:0qYnRPSkb2Ggpe3CtL9MbXA8oY5+jpnBbXdpHQU1z1s=
-golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
-golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
+golang.org/x/sys v0.44.0 h1:ildZl3J4uzeKP07r2F++Op7E9B29JRUy+a27EibtBTQ=
+golang.org/x/sys v0.44.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
