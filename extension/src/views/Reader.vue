@@ -11,7 +11,7 @@
       />
     </div>
 
-    <div ref="frameEl" class="reader-frame">
+    <div class="reader-frame">
       <div v-if="banner" class="alert m-3 mb-0" :class="prefs.server === 'down' ? 'alert-warning' : 'alert-info'">
         {{ banner }}
         <a :href="RELEASE_URL" target="_blank" rel="noopener">Download the helper</a>
@@ -19,26 +19,13 @@
         <button class="btn btn-sm btn-link p-0 ms-1" @click="retry">Retry</button>
         <button class="btn btn-sm btn-link p-0" title="Dismiss" @click="bannerGone = true">✕</button>
       </div>
-      <div v-if="reader.loading" class="alert alert-info m-3">Opening book…</div>
-      <div v-else-if="reader.error" class="alert alert-danger m-3">{{ reader.error }}</div>
-      <EpubView
-        v-else-if="reader.data"
-        ref="view"
-        :url="reader.data"
-        :location="reader.location || undefined"
-        :epub-init-options="{ openAs: 'binary' }"
-        :epub-options="epubOptions"
-        :enable-key="false"
-        :enable-wheel="false"
-        :toc-changed="onToc"
-        :get-rendition="onRendition"
-        @update:location="onLocation"
-      >
-        <template #loadingView><p class="text-center text-body-secondary mt-5">Opening book…</p></template>
-        <template #errorView>
-          <p class="text-center text-danger mt-5">This book could not be opened.</p>
-        </template>
-      </EpubView>
+      <div v-if="reader.book" ref="viewEl" class="folio-host" :style="{ background: PALETTES[prefs.theme].bg }"></div>
+      <template v-if="!reader.book">
+        <div v-if="reader.loading" class="alert alert-info m-3">Opening book…</div>
+        <div v-else-if="reader.error" class="alert alert-danger m-3">{{ reader.error }}</div>
+        <div v-else class="alert alert-danger m-3">This book could not be opened.</div>
+      </template>
+      <div v-if="reader.book && opening" class="alert alert-info m-3 over-book">Opening book…</div>
       <div v-if="note" class="book-note">
         {{ note }}
       </div>
@@ -160,35 +147,20 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { EpubView } from "vue-reader";
-import "vue-reader/lib/index.css";
 import { autoUpdate, computePosition, flip, offset, shift } from "@floating-ui/dom";
 import type { VirtualElement } from "@floating-ui/dom";
-import type { Contents, NavItem } from "epubjs";
 import { useReader } from "../store/reader";
 import { usePrefs } from "../store/prefs";
 import type { ThemeName } from "../types";
-import { rerender, usePlayer } from "../store/player";
+import { usePlayer } from "../store/player";
 import { addMark, newId, TEXT_MAX } from "../ext/marks";
-import { sentenceIndexAtSelection } from "../tts/locate";
-import { spinePosOf } from "../tts/cfi";
+import { sentenceAtPoint } from "../text/sentences";
 import { HIGHLIGHT_CSS, LINK_CSS } from "../theme";
-import { contentHook } from "../types";
-import type { BookRendition, RelocatedLocation } from "../types";
+import { mountView } from "../foliate/render";
+import type { TocItem } from "../foliate/book";
 import ReaderBar from "../components/ReaderBar.vue";
 import { useSidecar } from "../store/sidecar";
 import { INSTALL_URL, RELEASE_URL, downMessage } from "../ext/serve";
-
-interface EpubViewApi {
-  nextPage(): void;
-  prevPage(): void;
-  setLocation(href: string | number): void;
-}
-
-interface LocStart {
-  cfi: string;
-  href: string;
-}
 
 interface TocMark {
   page: number;
@@ -197,8 +169,7 @@ interface TocMark {
   frac: number;
 }
 
-const PAGE_STYLE_ID = "reader-page-style";
-/** Chars per generated location (~one page). */
+/** Chars per generated page (~one screenful of prose). */
 const LOC_CHARS = 1000;
 
 const PALETTES: Record<ThemeName, { bg: string; fg: string }> = {
@@ -215,11 +186,10 @@ const reader = useReader();
 const player = usePlayer();
 const prefs = usePrefs();
 const car = useSidecar();
-const view = ref<unknown>(null);
-const frameEl = ref<HTMLDivElement | null>(null);
-let frameRO: ResizeObserver | null = null;
+const viewEl = ref<HTMLDivElement | null>(null);
+const opening = ref(false);
 
-/** Book-wide page progress (from generated locations). */
+/** Book-wide page progress (chars per page, sections weighted by length). */
 const totalPages = ref(0);
 const curPage = ref(0);
 const locating = ref(false);
@@ -227,21 +197,10 @@ const scrubbing = ref(false);
 const scrubPage = ref(1);
 /** Dismissed the "no server" banner for this book. */
 const bannerGone = ref(false);
-/** Drops stale location runs (book switches) and old listeners. */
-let progressRun = 0;
-let subRendition: BookRendition | null = null;
-let subHandler: ((loc: RelocatedLocation) => void) | null = null;
-
-/**
- * The whole book, as one scroll.
- *
- * `scrolled-doc` renders a whole chapter without a scrollbar of its own;
- * epub.js's `continuous` manager then stacks those sections in a single
- * scrollable container and appends the next (or the previous) as you reach
- * one, so scrolling never stops at a chapter edge. The wheel is left to the
- * browser and the page buttons scroll a screenful at a time.
- */
-const epubOptions = { flow: "scrolled-doc", manager: "continuous" };
+/** Drops stale mount runs (book switches) and old listeners. */
+let viewRun = 0;
+let stopRelocate: (() => void) | null = null;
+let stopLoad: (() => void) | null = null;
 
 const sliderMax = computed(() => Math.max(1, totalPages.value));
 const sliderValue = computed(() => (scrubbing.value ? scrubPage.value : curPage.value || 1));
@@ -249,7 +208,7 @@ const sentTotal = computed(() => reader.sentences.length);
 /** No server, no speech: the buttons say so instead of failing on a press. */
 const serverDown = computed(() => prefs.server === "down");
 const canPlay = computed(
-  () => !!reader.book && !!reader.rendition && sentTotal.value > 0 && !serverDown.value,
+  () => !!reader.book && !!reader.view && sentTotal.value > 0 && !serverDown.value,
 );
 const playTitle = computed(() =>
   serverDown.value
@@ -284,43 +243,31 @@ const tocTip = ref<{ page: number; title: string } | null>(null);
 const tocTipEl = ref<HTMLDivElement | null>(null);
 
 /**
- * TOC markers on the scrub track. Each TOC href resolves to a spine
- * section (same lookup as rendition.display); the section's first
- * generated location is the marker's page. One marker per page —
- * depth-first order lets a parent title win a shared page.
+ * TOC markers on the scrub track. Each TOC href resolves to a section (the
+ * same resolution the sidebar jump uses); the marker sits on the page where
+ * that section starts. One marker per page — depth-first order lets a parent
+ * title win a shared page.
  */
 const tocMarks = computed<TocMark[]>(() => {
-  const book = reader.rendition?.book;
+  const folio = reader.folio;
   const n = totalPages.value;
-  if (!book || n < 2 || !reader.toc.length) return [];
-  const firstLoc = new Map<number, number>();
-  for (let i = 0; i < n; i++) {
-    const cfi = book.locations.cfiFromLocation(i);
-    if (typeof cfi !== "string") continue;
-    const si = spinePosOf(cfi);
-    if (si >= 0 && !firstLoc.has(si)) firstLoc.set(si, i);
-  }
+  if (!folio || n < 2 || !reader.toc.length) return [];
   const seen = new Set<number>();
   const marks: TocMark[] = [];
   for (const item of flattenToc(reader.toc)) {
-    let sec: { index: number } | null = null;
-    try {
-      sec = book.spine.get(item.href);
-    } catch {
-      continue;
-    }
-    if (!sec) continue;
-    const loc = firstLoc.get(sec.index);
-    if (loc === undefined || seen.has(loc)) continue;
+    const target = folio.resolveHref(item.href);
+    if (!target) continue;
+    const loc = pageOf(target.index, 0);
+    if (seen.has(loc)) continue;
     seen.add(loc);
     marks.push({ page: loc + 1, title: item.label, frac: loc / (n - 1) });
   }
   return marks.sort((a, b) => a.page - b.page);
 });
 
-function flattenToc(items: NavItem[]): { href: string; label: string }[] {
+function flattenToc(items: TocItem[]): { href: string; label: string }[] {
   const out: { href: string; label: string }[] = [];
-  const walk = (list: NavItem[]): void => {
+  const walk = (list: TocItem[]): void => {
     for (const it of list) {
       out.push({ href: it.href, label: (it.label || "").trim() || it.href });
       if (it.subitems?.length) walk(it.subitems);
@@ -386,16 +333,12 @@ function trackPop(): void {
   });
 }
 
-function api(): EpubViewApi | null {
-  return view.value as EpubViewApi | null;
-}
-
 function prev(): void {
-  api()?.prevPage();
+  void reader.view?.prevPage().catch(() => undefined);
 }
 
 function next(): void {
-  api()?.nextPage();
+  void reader.view?.nextPage().catch(() => undefined);
 }
 
 /** Play from where the voice left off, or this chapter's first sentence. */
@@ -424,22 +367,19 @@ function hideSel(): void {
 }
 
 /**
- * Sentence index under the selection's start. Resolved by DOM position, so
- * a repeated phrase maps to the occurrence actually selected instead of the
- * first match above it. Falls back to text search when the DOM is unusable.
+ * Sentence index under the selection's start. Resolved by DOM position in
+ * the live section document, so a repeated phrase maps to the occurrence
+ * actually selected instead of the first match above it. Falls back to text
+ * search when the DOM is unusable.
  */
 function sentenceAtSelection(doc: Document, text: string): number {
   const pool = reader.chapterIndices();
   if (pool.length) {
+    const live = reader.view?.contents();
     const sel = doc.getSelection();
-    if (sel && sel.rangeCount > 0) {
+    if (live && live.doc === doc && sel && sel.rangeCount > 0) {
       const r = sel.getRangeAt(0);
-      const at = sentenceIndexAtSelection(
-        doc,
-        pool.map((i) => reader.sentences[i].text),
-        r.startContainer,
-        r.startOffset,
-      );
+      const at = sentenceAtPoint(doc, r.startContainer, r.startOffset, pool.length);
       if (at >= 0) return pool[at];
     }
   }
@@ -551,89 +491,111 @@ function resume(): void {
   void player.resume();
 }
 
-function onLocation(loc: LocStart): void {
-  reader.setLocation(loc.cfi, loc.href);
-  hideSel();
+function detachView(): void {
+  viewRun++;
+  stopRelocate?.();
+  stopLoad?.();
+  stopRelocate = null;
+  stopLoad = null;
 }
 
-function onToc(toc: NavItem[]): void {
-  reader.setToc(toc);
-}
-
-function detachProgress(): void {
-  progressRun++;
-  if (subRendition && subHandler) {
-    try {
-      subRendition.off("relocated", subHandler);
-    } catch {
-      // Already torn down.
-    }
+/** Chars per section, in spine order (progress weights sections by length). */
+let charCache = { id: "", chars: [] as number[] };
+function sectionChars(): number[] {
+  const id = reader.book?.id ?? "";
+  if (charCache.id === id && charCache.chars.length) return charCache.chars;
+  const counts = new Map<number, number>();
+  for (const s of reader.sentences) {
+    counts.set(s.chapter, (counts.get(s.chapter) ?? 0) + s.text.length + 1);
   }
-  subRendition = null;
-  subHandler = null;
+  const n = reader.folio?.sections.length ?? 0;
+  charCache = { id, chars: Array.from({ length: n }, (_, i) => counts.get(i) ?? 0) };
+  return charCache.chars;
+}
+
+function totalChars(): number {
+  return sectionChars().reduce((a, b) => a + b, 0);
+}
+
+/** 0-based page for a section start + fraction through it. */
+function pageOf(section: number, fraction: number): number {
+  const chars = sectionChars();
+  const total = chars.reduce((a, b) => a + b, 0);
+  const n = Math.max(1, Math.ceil(total / LOC_CHARS));
+  if (n < 2) return 0;
+  let before = 0;
+  for (let i = 0; i < section && i < chars.length; i++) before += chars[i];
+  const at = before + Math.min(1, Math.max(0, fraction)) * (chars[section] ?? 0);
+  return Math.min(n - 1, Math.floor((at / total) * n));
+}
+
+/** Theme + highlight CSS, repainted into the live section document. */
+function themeCss(): string {
+  const pal = PALETTES[prefs.theme];
+  return (
+    `html{background:${pal.bg}}` +
+    `body{background:${pal.bg}!important;color:${pal.fg}!important;font-size:${prefs.font}%}` +
+    `${HIGHLIGHT_CSS[prefs.theme]}${LINK_CSS[prefs.theme]}`
+  );
+}
+
+function applyTheme(): void {
+  reader.view?.setTheme(themeCss());
 }
 
 /**
- * Keep the book one continuous scroll.
- *
- * epub.js's continuous manager decides whether to stack the next chapter
- * from the container's scroll height, and re-checks only when you *scroll*.
- * That leaves two gaps we have to cover: the first section's height settles
- * after its own `fill()` ran, and a section short enough to fit the screen
- * leaves nothing to scroll, so no scroll ever comes. Asking it to fill after
- * each relocation fixes both — it appends only what is missing and stops as
- * soon as it has a screenful to spare, exactly as its own scroll handler
- * does. Each new section fires `relocated` again, so this converges.
+ * Mount the viewer for the open book: create the paginator, open the book,
+ * seek the resumed section, and follow relocations for progress + notes.
+ * One section renders at a time; moving between them is explicit (TOC,
+ * scrubber, bookmarks, narration), never an infinite stack.
  */
-function stackAhead(book: BookRendition): void {
-  void book.manager?.fill().catch(() => undefined);
-}
-
-/** Track current/total pages via generated locations + relocated events. */
-function trackProgress(rendition: BookRendition): void {
-  detachProgress();
-  const run = progressRun;
+async function mountBook(): Promise<void> {
+  detachView();
+  const run = ++viewRun;
+  const folio = reader.folio;
+  const host = viewEl.value;
+  if (!folio || !host) return;
+  opening.value = true;
+  locating.value = true;
   totalPages.value = 0;
   curPage.value = 0;
   scrubbing.value = false;
-  locating.value = true;
-  const book = rendition.book;
-  if (!book) {
-    locating.value = false;
-    return;
-  }
-  const onRelocated = (loc: RelocatedLocation): void => {
-    if (run !== progressRun) return;
-    // vue-reader's update:location only carries the CFI string; the full
-    // relocated payload is what actually has cfi + href + spine index.
-    reader.setLocation(loc.start.cfi, loc.start.href);
-    if (typeof loc.start.location === "number" && book.locations.length() > 0) {
-      reader.setPages(loc.start.location + 1, book.locations.length());
-      syncPages();
+  try {
+    const view = mountView(host);
+    if (run !== viewRun) {
+      view.destroy();
+      return;
     }
-    // Keep the continuous stack growing (see stackAhead).
-    stackAhead(rendition);
-    // This is the only note we keep: where the reader got to.
-    reader.scheduleSave(player.pos);
-  };
-  subRendition = rendition;
-  subHandler = onRelocated;
-  rendition.on("relocated", onRelocated);
-  void book.locations
-    .generate(LOC_CHARS)
-    .then(() => {
-      if (run !== progressRun) return;
-      locating.value = false;
-      totalPages.value = book.locations.length();
-      const cfi = reader.location;
-      if (cfi) {
-        const idx = book.locations.locationFromCfi(cfi);
-        if (idx >= 0) curPage.value = idx + 1;
-      }
-    })
-    .catch(() => {
-      if (run === progressRun) locating.value = false;
+    reader.setView(view);
+    applyTheme();
+    stopLoad = view.onLoad(({ doc }) => {
+      if (run !== viewRun) return;
+      watchKeys(doc);
     });
+    stopRelocate = view.onRelocate(({ index, fraction }) => {
+      if (run !== viewRun) return;
+      reader.setSection(index);
+      const n = Math.max(1, Math.ceil(totalChars() / LOC_CHARS));
+      reader.setPages(pageOf(index, fraction) + 1, n);
+      syncPages();
+      // This is the only note we keep: where the reader got to.
+      reader.scheduleSave(player.pos);
+    });
+    view.open(folio);
+    await view.goTo({ index: reader.section });
+    if (run !== viewRun) return;
+    const n = Math.max(1, Math.ceil(totalChars() / LOC_CHARS));
+    totalPages.value = n;
+    curPage.value = pageOf(reader.section, 0) + 1;
+    locating.value = false;
+  } catch {
+    if (run === viewRun) {
+      locating.value = false;
+      reader.error = "This book could not be opened.";
+    }
+  } finally {
+    if (run === viewRun) opening.value = false;
+  }
 }
 
 /** Mirror the store's page numbers into the scrub row's local view. */
@@ -644,14 +606,22 @@ function syncPages(): void {
 
 /** Jump to a 1-based page. */
 function goPage(p: number): void {
-  const rendition = reader.rendition;
-  const book = rendition?.book;
+  const view = reader.view;
+  const chars = sectionChars();
+  const total = chars.reduce((a, b) => a + b, 0);
   const n = totalPages.value;
-  if (!rendition || !book || !n) return;
+  if (!view || !n || !total) return;
   const clamped = Math.min(n, Math.max(1, Math.round(p)));
-  const cfi = book.locations.cfiFromLocation(clamped - 1);
-  if (typeof cfi !== "string" || !cfi) return;
-  void rendition.display(cfi).catch(() => undefined);
+  const at = ((clamped - 1) / (n - 1 || 1)) * total;
+  let before = 0;
+  for (let i = 0; i < chars.length; i++) {
+    if (at < before + chars[i] || i === chars.length - 1) {
+      const frac = chars[i] > 0 ? (at - before) / chars[i] : 0;
+      void view.goTo({ index: i, anchor: frac }).catch(() => undefined);
+      return;
+    }
+    before += chars[i];
+  }
 }
 
 function scrubStart(): void {
@@ -686,76 +656,31 @@ function scrubCancel(): void {
   stopPopTrack = null;
 }
 
-/** Paint one chapter page: theme + font size + highlight rules. */
-function applyPage(doc: Document): void {
-  const pal = PALETTES[prefs.theme];
-  doc.documentElement.style.background = pal.bg;
-  if (doc.body) {
-    doc.body.style.background = pal.bg;
-    doc.body.style.color = pal.fg;
-  }
-  doc.documentElement.style.fontSize = `${prefs.font}%`;
-  let style = doc.getElementById(PAGE_STYLE_ID);
-  if (!style) {
-    style = doc.createElement("style");
-    style.id = PAGE_STYLE_ID;
-    doc.head.appendChild(style);
-  }
-  // Highlight rules *and* link colours: a book's own stylesheet usually picks
-  // a link colour that disappears on our background.
-  style.textContent = `${HIGHLIGHT_CSS[prefs.theme]}${LINK_CSS[prefs.theme]}`;
-}
-
-/** Re-paint every loaded page (theme / font change). */
-function repaintAll(): void {
-  const rendition = reader.rendition;
-  if (!rendition) return;
-  const contents = rendition.getContents() as unknown as Contents[];
-  for (const c of contents) {
-    if (c.document) applyPage(c.document);
-  }
-}
-
-function onRendition(rendition: unknown): void {
-  if (!rendition || typeof rendition !== "object") return;
-  const book = rendition as BookRendition;
-  reader.setRendition(book);
-  contentHook(book).register((contents) => {
-    if (!contents.document) return;
-    applyPage(contents.document);
-    watchKeys(book, contents.document);
-    // epub.js has just (re)written this chapter: whatever was highlighted in
-    // the old document is gone, so put it back here.
-    rerender(contents.document);
-  });
-  trackProgress(book);
-}
-
 /**
  * Keys and selection inside the book. The top-window listener cannot hear
- * them: events in a chapter iframe never reach the parent document — so we
- * own them. Scrolling is *not* ours: the book is one continuous scrollable,
- * so the wheel and the scrollbar do that, and the arrows page a screenful.
+ * them: events in a section iframe never reach the parent document — so we
+ * own them. Scrolling is *not* ours: the section scrolls natively, the wheel
+ * and the scrollbar do that, and the arrows page a screenful at a time.
  */
-function watchKeys(book: BookRendition, doc: Document): void {
+function watchKeys(doc: Document): void {
   if (keyedDocs.has(doc)) return;
   keyedDocs.add(doc);
-  doc.addEventListener("keydown", (ev: KeyboardEvent) => onPageKey(book, ev));
+  doc.addEventListener("keydown", (ev: KeyboardEvent) => onPageKey(ev));
   doc.addEventListener("mousedown", () => hideSel());
   doc.addEventListener("mouseup", () => onBookMouseUp(doc));
 }
 
-function onPageKey(book: BookRendition, ev: KeyboardEvent): void {
+function onPageKey(ev: KeyboardEvent): void {
   const t = ev.target as HTMLElement | null;
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
     return;
   }
   if (ev.key === "ArrowLeft") {
     ev.preventDefault();
-    void book.prev();
+    prev();
   } else if (ev.key === "ArrowRight") {
     ev.preventDefault();
-    void book.next();
+    next();
   }
   // Up/Down/PageUp/PageDown are left alone to scroll natively.
 }
@@ -774,41 +699,28 @@ onMounted(() => {
     const at = reader.resumed;
     say(`Resumed at ${Math.round(at.pct * 100)}%${at.chapter ? ` · ${at.chapter}` : ""}`, 6000);
   }
-  // Static in-flow bars: re-measure the rendition whenever the frame's
-  // size settles (server banner, window resize) — no timers involved.
-  if (frameEl.value) {
-    frameRO = new ResizeObserver(() => {
-      try {
-        reader.rendition?.resize();
-      } catch {
-        // Tearing down; nothing to resize.
-      }
-    });
-    frameRO.observe(frameEl.value);
-  }
+  if (reader.book) void mountBook();
   window.addEventListener("keydown", onKeys);
 });
 
-// Font size / theme live in Settings now; re-paint loaded pages on change.
+// Font size / theme live in Settings now; re-paint on change.
 watch(
   () => prefs.font,
-  () => repaintAll(),
+  () => applyTheme(),
 );
 
 watch(
   () => prefs.theme,
-  () => repaintAll(),
+  () => applyTheme(),
 );
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeys);
   if (noteTimer) window.clearTimeout(noteTimer);
   noteTimer = 0;
-  frameRO?.disconnect();
-  frameRO = null;
   stopPopTrack?.();
   stopPopTrack = null;
-  detachProgress();
+  detachView();
   player.stop();
   void reader.flushPlace();
   reader.close();

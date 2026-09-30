@@ -1,15 +1,15 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import type { Contents } from "epubjs";
 import { getWords, speakAudio } from "../api/voice";
 import type { Sentence, Word } from "../api/voice";
+import { rangeOfSentence, sectionStart } from "../text/sentences";
 import { speakable } from "../text/speak";
 import { downMessage } from "../ext/serve";
 import { applyRate, reload, setSource, sound } from "../tts/sound";
-import { clear as clearMark, current, reapply, show as showMark } from "../tts/mark";
+import { clear as clearMark, current, showRange as showMark } from "../tts/mark";
 import { usePrefs } from "./prefs";
 import { useReader } from "./reader";
-import type { BookRendition } from "../types";
+import type { ReaderView } from "../foliate/render";
 
 export type Phase = "idle" | "loading" | "playing" | "paused" | "error";
 
@@ -18,13 +18,7 @@ export interface ReadyAudio {
   words: Word[];
 }
 
-/** epub.js types getContents() as one Contents; at runtime it is an array. */
-function contentsOf(rendition: BookRendition): Contents[] {
-  return rendition.getContents() as unknown as Contents[];
-}
-
 /** Module-scope playback bits (never reactive). */
-/** Drops stale runs (stop / new start). */
 let run = 0;
 /** Drops stale play() calls (pause / stop / new start). */
 let playToken = 0;
@@ -81,7 +75,7 @@ export const usePlayer = defineStore("player", () => {
     phase.value = "loading";
     const sent = reader.sentences[i];
     try {
-      await showSentence(reader.rendition, sent, usePrefs().autoScroll, () => myRun === run);
+      await showSentence(sent, i, usePrefs().autoScroll, () => myRun === run);
       if (myRun !== run) return;
       const item = await ensureAudio(i, myRun);
       if (!item || myRun !== run) return;
@@ -284,105 +278,48 @@ function stopWords(): void {
 
 /** Display + highlight one sentence. Never throws for a missing highlight. */
 async function showSentence(
-  rendition: BookRendition | null,
   sent: Sentence,
+  global: number,
   scroll: boolean,
   alive: () => boolean,
 ): Promise<void> {
   clearMark();
-  if (!rendition) return;
-  const doc = await ensureSentenceDoc(rendition, sent, alive);
+  const doc = await ensureSection(useReader().view, sent.chapter, alive);
   if (!doc || !alive()) return;
-  const mark = showMark(doc, sent.text);
-  if (!mark) return; // audio still plays; highlight skipped
-  if (scroll) {
-    // The chapter's iframe first, then the sentence inside it: in the book's
-    // one continuous scroll, centring the iframe would only land us in the
-    // middle of the chapter, and the sentence is what should be centred.
-    doc.defaultView?.frameElement?.scrollIntoView?.({ block: "center" });
-    mark.ps.el.scrollIntoView({ block: "center" });
-  }
-}
-
-/** Docs currently loaded in the rendition (the visible pages). */
-function loadedDocs(rendition: BookRendition): Document[] {
-  return contentsOf(rendition)
-    .map((c) => c.document)
-    .filter((d): d is Document => !!d?.body);
+  const range = rangeOfSentence(doc, global - sectionStart(useReader().sentences, global));
+  if (!range) return; // audio still plays; highlight skipped
+  const mark = showMark(doc, range);
+  if (!mark) return;
+  if (scroll) mark.ps.el.scrollIntoView({ block: "center" });
 }
 
 /**
- * First loaded doc containing the sentence head (full 40 chars, then a
- * 20-char backoff for chapters whose text drifts). Null when the sentence
- * is not on screen — the caller decides whether to display/page.
+ * The live document of a section, navigating there first when needed.
+ * The paginator keeps exactly one section loaded, so "the doc" is never
+ * a guess: it is either already on screen or the load we just asked for.
  */
-function chapterDoc(rendition: BookRendition | null, probe: string): Document | null {
-  if (!rendition) return null;
-  const collapsed = probe.replace(/\s+/g, " ").trim();
-  if (!collapsed) return null;
-  const docs = loadedDocs(rendition);
-  for (const head of [collapsed.slice(0, 40), collapsed.slice(0, 20)]) {
-    if (!head) continue;
-    for (const doc of docs) {
-      if (doc.body.textContent?.replace(/\s+/g, " ").includes(head)) return doc;
-    }
+export async function ensureSection(
+  view: ReaderView | null,
+  section: number,
+  alive: () => boolean,
+): Promise<Document | null> {
+  if (!view) return null;
+  const live = view.contents();
+  if (live && live.index === section) return live.doc;
+  try {
+    await view.goTo({ index: section });
+  } catch {
+    return null;
+  }
+  // The section we asked for is loading; wait for its document (or death).
+  for (let i = 0; i < 100 && alive(); i++) {
+    const now = view.contents();
+    if (now && now.index === section && now.doc?.body) return now.doc;
+    await sleep(20);
   }
   return null;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((done) => window.setTimeout(done, ms));
-}
-
-/**
- * The doc showing this sentence, displaying/paging as needed. Sentences on
- * the visible page return without touching the rendition (no flicker); a
- * chapter change displays once, then pages forward until the sentence is
- * visible (multi-page chapters). Null when it never appears.
- */
-export async function ensureSentenceDoc(
-  rendition: BookRendition | null,
-  sent: Sentence,
-  alive: () => boolean,
-): Promise<Document | null> {
-  if (!rendition) return null;
-  if (chapterDoc(rendition, sent.text)) {
-    return chapterDoc(rendition, sent.text);
-  }
-  try {
-    await rendition.display(sent.href);
-  } catch {
-    return null;
-  }
-  // Let the fresh chapter render before turning any pages.
-  for (let i = 0; i < 20 && alive(); i++) {
-    if (chapterDoc(rendition, sent.text)) {
-      return chapterDoc(rendition, sent.text);
-    }
-    await sleep(50);
-  }
-  // Sentence further into a multi-page chapter: turn pages until visible.
-  for (let p = 0; p < 10 && alive(); p++) {
-    try {
-      await rendition.next();
-    } catch {
-      break;
-    }
-    if (chapterDoc(rendition, sent.text)) {
-      return chapterDoc(rendition, sent.text);
-    }
-  }
-  return null;
-}
-
-// --- surviving a re-render --------------------------------------------
-
-/**
- * epub.js re-rendered the chapter — a resize re-lays out the page, and
- * hiding the sidebar resizes it. The old document (and everything we
- * painted in it) is gone, so put the highlight back in the new one and let
- * the audio clock re-anchor the word on its next frame.
- */
-export function rerender(doc: Document): void {
-  if (reapply(doc)) wordIdx = -1;
 }

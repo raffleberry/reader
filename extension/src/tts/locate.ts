@@ -1,22 +1,17 @@
 /**
- * Map backend sentences to DOM ranges inside an epub.js chapter document.
- * Raw text nodes are concatenated untouched (exact offsets); a normalized
- * copy with a back-map is used for searching, so whitespace differences
- * between the EPUB source and the rendered DOM cannot misalign us.
- *
- * Painting splits text nodes, so a map built before a paint goes stale.
- * Sentence lookup may use a one-shot map, but word highlights must always
- * go through the live-DOM helpers below (paintSentence/paintWord), which
- * re-walk the sentence element on every call and can never drift.
+ * Range painting inside a section document: wrap a range in a span, and
+ * paint spoken words by searching the live DOM on every call. Sentences
+ * arrive as ranges from src/text/sentences.ts now — nothing here searches
+ * for text anymore.
  */
 
-export interface FlatNode {
+interface FlatNode {
   node: Text;
   start: number;
   end: number;
 }
 
-export interface FlatMap {
+interface FlatMap {
   spans: FlatNode[];
   /** Whitespace-collapsed copy of the text. */
   norm: string;
@@ -24,28 +19,9 @@ export interface FlatMap {
   back: number[];
 }
 
-/** Collapse whitespace like the backend does. */
+/** Collapse whitespace. */
 function flat(s: string): string {
   return s.replace(/\s+/g, " ").trim();
-}
-
-export function flatDoc(doc: Document): FlatMap {
-  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-  const spans: FlatNode[] = [];
-  let raw = "";
-  let node = walker.nextNode();
-  while (node) {
-    const text = node as Text;
-    // Whitespace-only nodes still separate words (inline <span> </span>),
-    // so they are kept; only script/style text and empty nodes are dropped.
-    const bad = text.parentElement?.closest("script,style") || !text.data.length;
-    if (!bad) {
-      spans.push({ node: text, start: raw.length, end: raw.length + text.data.length });
-      raw += text.data;
-    }
-    node = walker.nextNode();
-  }
-  return collapse(raw, spans);
 }
 
 /** Same whitespace collapse over a live element (fresh nodes each call). */
@@ -89,33 +65,6 @@ function collapse(raw: string, spans: FlatNode[]): FlatMap {
     back.pop();
   }
   return { spans, norm, back };
-}
-
-export interface FoundSentence {
-  range: Range;
-  map: FlatMap;
-  /** Norm offset where the sentence starts. */
-  at: number;
-}
-
-/** Sentence position inside doc; null when the text is not on this page. */
-export function findSentence(doc: Document, probe: string): FoundSentence | null {
-  const map = flatDoc(doc);
-  const want = flat(probe);
-  if (!want) return null;
-  let at = map.norm.indexOf(want);
-  let len = want.length;
-  if (at < 0) {
-    // Chapter text differs past the head (quotes, tail edits): highlight
-    // the matching prefix instead of nothing.
-    const head = want.slice(0, 40);
-    at = map.norm.indexOf(head);
-    len = head.length;
-  }
-  if (at < 0) return null;
-  const range = rangeFromNorm(doc, map, at, Math.min(at + len, map.back.length));
-  if (!range) return null;
-  return { range, map, at };
 }
 
 /** Range from norm offsets; null when out of bounds. */
@@ -187,14 +136,6 @@ export interface PaintedSentence {
   unpaint: () => void;
 }
 
-/** Find one sentence and wrap it; null when the text is not in this doc. */
-export function paintSentence(doc: Document, probe: string, cls: string): PaintedSentence | null {
-  const found = findSentence(doc, probe);
-  if (!found) return null;
-  const { el, unpaint } = paint(found.range, cls);
-  return { doc, el, unpaint };
-}
-
 export interface PaintedWord {
   /** Collapsed-text offset just past the painted word; pass back as `from`. */
   end: number;
@@ -231,80 +172,4 @@ export function paintWord(
   } catch {
     return null;
   }
-}
-
-export interface PlacedSentence {
-  /** Index into the probes array. */
-  index: number;
-  /** Norm offset where the sentence starts. */
-  at: number;
-  /** Norm offset just past the sentence. */
-  end: number;
-}
-
-/**
- * Lay ordered sentence probes out over one chapter map in a single pass.
- * Probes that cannot be found are skipped. Repeats resolve in order: each
- * search starts where the previous match ended.
- */
-export function placeSentences(map: FlatMap, probes: string[]): PlacedSentence[] {
-  const out: PlacedSentence[] = [];
-  let cursor = 0;
-  for (let i = 0; i < probes.length; i++) {
-    const want = flat(probes[i]);
-    if (!want) continue;
-    let at = map.norm.indexOf(want, cursor);
-    let len = want.length;
-    if (at < 0) {
-      const head = want.slice(0, 40);
-      at = map.norm.indexOf(head, cursor);
-      len = head.length;
-    }
-    if (at < 0) continue;
-    const end = Math.min(at + len, map.norm.length);
-    out.push({ index: i, at, end });
-    cursor = end;
-  }
-  return out;
-}
-
-/**
- * Which probe the selection starts in, by DOM position — never text search,
- * so a repeated phrase resolves to the occurrence actually selected instead
- * of the first match above it. Returns the probe index, or -1 when the
- * position cannot be placed.
- */
-export function sentenceIndexAtSelection(
-  doc: Document,
-  probes: string[],
-  startNode: Node,
-  startOffset: number,
-): number {
-  if (startNode.ownerDocument !== doc) return -1;
-  const placed = placeSentences(flatDoc(doc), probes);
-  if (!placed.length) return -1;
-  let pre: Range;
-  try {
-    pre = doc.createRange();
-    pre.selectNodeContents(doc.body);
-    pre.setEnd(startNode, startOffset);
-  } catch {
-    return -1;
-  }
-  const selAt = collapsePrefix(pre.toString());
-  let best = placed[0];
-  for (const p of placed) {
-    if (p.at <= selAt) best = p;
-    else break;
-  }
-  return best.index;
-}
-
-/**
- * Collapse like flat(), but keep one trailing space: a selection starting a
- * sentence sits right after the gap, and trimming it would map the position
- * one char short — into the previous sentence.
- */
-function collapsePrefix(s: string): number {
-  return s.replace(/\s+/g, " ").replace(/^ /, "").length;
 }

@@ -1,14 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { ensureSentenceDoc } from "../src/store/player";
-import type { Sentence } from "../src/api/voice";
-import type { BookRendition } from "../src/types";
+import { ensureSection } from "../src/store/player";
+import type { ReaderView } from "../src/foliate/render";
 
 /**
- * Read-aloud navigation (ensureSentenceDoc in src/store/player.ts): the
- * player must not redisplay when the sentence is already visible, must
- * display once on a chapter change, and must turn pages for sentences
- * further into a multi-page chapter. A fake rendition with real detached
- * chapter documents drives the real implementation.
+ * Read-aloud navigation (ensureSection in src/store/player.ts): the player
+ * must not navigate when the sentence's section is already on screen, must
+ * navigate once on a section change, and must give up when nothing loads.
+ * A fake viewer with real detached section documents drives the real
+ * implementation.
  */
 
 function docOf(html: string): Document {
@@ -19,81 +18,60 @@ function docOf(html: string): Document {
 
 interface Nav {
   docText: string | null;
-  displays: string[];
-  nexts: number;
+  gotos: number[];
 }
 
 async function navigate(
-  mode: "visible" | "chapter" | "multipage",
-  probe: string,
+  mode: "visible" | "section" | "missing",
+  section: number,
 ): Promise<Nav> {
-  const ch1 = docOf("<p>First chapter opens here. Still the first chapter.</p>");
-  const ch2 = docOf("<p>Second chapter begins now. It continues a while.</p>");
-  const pg1 = docOf("<p>Long chapter starts here. It goes on.</p>");
-  const pg2 = docOf("<p>Long chapter ends here. That is all.</p>");
+  const sec0 = docOf("<p>First section opens here. Still the first section.</p>");
+  const sec1 = docOf("<p>Second section begins now. It continues a while.</p>");
 
-  const displays: string[] = [];
-  let nexts = 0;
-  // Visible docs; display() jumps to a chapter start, next() turns a page.
-  let visible: Document[] = mode === "multipage" ? [pg1] : [ch1];
-  const rendition = {
-    display: async (href: string): Promise<void> => {
-      displays.push(href);
-      if (href === "ch2.xhtml") visible = [ch2];
-      else if (href === "long.xhtml") visible = [pg1];
-      else if (href === "ch1.xhtml") visible = [ch1];
+  const gotos: number[] = [];
+  let live = mode === "section" ? 0 : section;
+  const view = {
+    contents: () => (mode === "missing" ? null : { index: live, doc: live === 0 ? sec0 : sec1 }),
+    goTo: async ({ index }: { index: number }): Promise<void> => {
+      gotos.push(index);
+      if (mode === "missing") return;
+      live = index;
     },
-    next: async (): Promise<void> => {
-      nexts++;
-      if (visible[0] === pg1) visible = [pg2];
-    },
-    prev: async (): Promise<void> => undefined,
-    resize: (): void => undefined,
-    getContents: (): { document: Document }[] => visible.map((document) => ({ document })),
-    hooks: { content: { register: (): void => undefined } },
-    on: vi.fn(),
-    off: vi.fn(),
-  } as unknown as BookRendition;
+  } as unknown as ReaderView;
 
-  const href =
-    mode === "chapter" ? "ch2.xhtml" : mode === "multipage" ? "long.xhtml" : "ch1.xhtml";
-  const sent: Sentence = { key: "k", chapter: 0, href, text: probe };
-  const doc = await ensureSentenceDoc(rendition, sent, () => true);
-  return { docText: doc ? (doc.body.textContent ?? "") : null, displays, nexts };
+  const doc = await ensureSection(view, section, () => true);
+  return { docText: doc ? (doc.body.textContent ?? "") : null, gotos };
 }
 
-describe("ensureSentenceDoc", () => {
-  it("does not redisplay when the sentence is already visible", async () => {
-    const out = await navigate("visible", "First chapter opens here.");
-    expect(out.docText).toContain("First chapter opens here.");
-    expect(out.displays).toEqual([]);
-    expect(out.nexts).toBe(0);
+describe("ensureSection", () => {
+  it("does not navigate when the section is already on screen", async () => {
+    const out = await navigate("visible", 0);
+    expect(out.docText).toContain("First section opens here.");
+    expect(out.gotos).toEqual([]);
   });
 
-  it("displays once on a chapter change", async () => {
-    const out = await navigate("chapter", "Second chapter begins now.");
-    expect(out.docText).toContain("Second chapter begins now.");
-    expect(out.displays).toEqual(["ch2.xhtml"]);
-    expect(out.nexts).toBe(0);
+  it("navigates once on a section change", async () => {
+    const out = await navigate("section", 1);
+    expect(out.docText).toContain("Second section begins now.");
+    expect(out.gotos).toEqual([1]);
   });
 
-  it("turns pages for a sentence later in the chapter", async () => {
-    const out = await navigate("multipage", "Long chapter ends here.");
-    expect(out.docText).toContain("Long chapter ends here.");
-    expect(out.displays).toEqual(["long.xhtml"]);
-    expect(out.nexts).toBe(1);
-  });
-
-  it("gives up without wandering when the sentence is nowhere", async () => {
-    const out = await navigate("visible", "This sentence exists in no chapter at all, truly.");
+  it("gives up when no section ever loads", async () => {
+    const out = await navigate("missing", 1);
     expect(out.docText).toBeNull();
-    // One display attempt plus a bounded number of page turns, then stop.
-    expect(out.displays).toEqual(["ch1.xhtml"]);
-    expect(out.nexts).toBeLessThanOrEqual(10);
+    expect(out.gotos).toEqual([1]);
   });
 
-  it("returns null with no rendition at all", async () => {
-    const doc = await ensureSentenceDoc(null, { key: "k", chapter: 0, href: "a", text: "x" }, () => true);
+  it("returns null with no viewer at all", async () => {
+    expect(await ensureSection(null, 0, () => true)).toBeNull();
+  });
+
+  it("stops waiting when the run dies", async () => {
+    const view = {
+      contents: () => null,
+      goTo: vi.fn(async () => undefined),
+    } as unknown as ReaderView;
+    const doc = await ensureSection(view, 3, () => false);
     expect(doc).toBeNull();
   });
 });

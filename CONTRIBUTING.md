@@ -21,8 +21,9 @@ If it isn't installed, that is a first-class state in the UI, not an error:
 the reader says where to get it and links to [INSTALL.md](INSTALL.md).
 
 - Extension: Vue 3 + Pinia (setup stores) + TypeScript (`<script setup>`),
-  Bootstrap, **WXT** (Vite under the hood), `bun`. EPUBs render with
-  `vue-reader` (epub.js).
+  Bootstrap, **WXT** (Vite under the hood), `bun`. EPUBs render with a
+  vendored foliate-js paginator (`extension/vendor/foliate-js`, MIT, pinned
+  commit in `VERSION.txt` — updates are manual, never a submodule).
 - Helper: Go + [`edge-tts-go`](https://github.com/raffleberry/edge-tts-go).
 - Task runner: `just`. Go deps: `go mod`. JS deps: `bun`.
 
@@ -45,9 +46,13 @@ extension/          # the browser extension (WXT root)
     views/          # OpenBook (start screen), Reader, Options
     components/     # Sidecar, ReaderBar, ServerBadge, RecentCard, TocList,
                     # BookmarksPanel, SettingsPanel
-    tts/            # locate.ts (sentence→DOM), mark.ts (the live highlight),
-                    # cfi.ts (spine positions), sound.ts (the audio element)
-    text/epub.ts    # zip → sentences
+    foliate/        # book.ts (openEPUB + script stripping), render.ts
+                    # (paginator facade) — the only place vendor modules load
+    text/           # sentences.ts (Intl.Segmenter splits + DOM ranges),
+                    # speak.ts (speakable check)
+    tts/            # locate.ts (range→span paints), mark.ts (the live
+                    # highlight), cfi.ts (same-section check), sound.ts (the
+                    # audio element)
     assets/         # app.css (palette + chrome), icon.svg (base for PNGs)
   test/             # vitest specs
   e2e/              # playwright specs (built extension + the real helper)
@@ -130,48 +135,40 @@ tts/                # the speech helper (Go module)
   down — so pressing play with no helper says so instead of failing on a
   call. `prefs.watchServer()` pings every 15 s while the tab is visible, so
   a helper that dies mid-session is noticed even if you aren't speaking yet.
-- Reader: `EpubView` + custom chrome; depend only on `BookRendition`
-  (`types.ts`), never the epub.js `Rendition` class. Gotchas: `openAs:'binary'`;
-  `.reader-frame` must be `relative` and neutralize EpubView's absolute
-  `.reader` inset; iframe keys are ours (`enable-key=false`,
-  `enable-wheel=false` — the wheel is the browser's now); location state
-  (cfi/href/spine) comes from our own `relocated` listener; highlight and link
-  CSS is injected per chapter via `hooks.content`; chrome is static in-flow
-  edges; a ResizeObserver re-measures the rendition on frame size changes.
-- **The book is one continuous scroll.** `epubOptions` is
-  `{flow:'scrolled-doc', manager:'continuous'}`: whole chapters are stacked in a
-  single `.epub-container` scroll, and epub.js appends the next (or the
-  previous) section as you reach one. There are no chapter edges, so there is
-  no overscroll pill and no scroll-direction setting — the wheel and the
-  scrollbar scroll natively, and the arrow keys page a screenful.
-  - The manager decides whether to stack more from the container's *scroll
-    height*, and re-checks only when you scroll. That leaves two gaps, which
-    `Reader.vue`'s `stackAhead()` closes by calling `manager.fill()` on every
-    `relocated`: the first section's height settles *after* epub.js's own
-    `fill()` ran, and a section that fits the screen leaves nothing to scroll,
-    so no scroll ever comes. Without it the book opens one chapter long and
-    stays that way. Each stacked section relocates, so it converges.
-  - Several chapter documents are live at once, so anything we inject goes
-    through `hooks.content`, and e2e tests must pick the frame they mean
-    (`e2e/chapter.ts`).
-- **`hooks.content` fires on every re-render, not just the first load.**
-  `rendition.resize()` → `manager.resize()` → `views.clear()` + re-render, and
-  hiding the sidebar resizes the frame — so the chapter document is destroyed
-  and rebuilt, and every span we injected dies with it. That is why the
-  highlight is kept as *text* in `tts/mark.ts`: the content hook calls
-  `rerender(doc)`, which re-finds the sentence in the new document and rewinds
-  the word cursor so the audio clock re-paints the current word. Anything else
-  injected into a chapter document belongs in the same hook.
+- Reader: a foliate-js paginator (`flow="scrolled"`) + custom chrome; depend
+  only on the facades (`src/foliate/`: `openEPUB`, `mountView`), never the
+  vendor modules directly. Gotchas: foliate's zip needs
+  `configure({useWebWorkers:false})` (extension pages have no worker URL;
+  without it `open()` hangs with no error); book scripts are stripped in
+  `openEPUB` via `transformTarget` (sections render same-origin); themes go
+  through the paginator's `setStyles()`; location state (section CFI +
+  fraction) comes from our own `relocate` listener; `.folio-host` must pin
+  the paginator and stay mounted while "Opening" shows; mount with a run
+  token (`detachView()` first, *then* mint); the paginator self-observes
+  resizes, so there is no resize hookup.
+- **One section renders at a time.** The paginator keeps exactly one section
+  document loaded; TOC/scrubber/bookmarks/narration navigate explicitly
+  (`goTo({index, anchor})`, `prev`/`next` cross sections on their own).
+  There are no chapter edges to stack past, so there is no overscroll pill
+  and no scroll-direction setting — sections scroll natively, and the arrow
+  keys page. Progress is chars-weighted (1000 chars ≈ one page) from the
+  sentence inventory. One live document also means e2e tests pick the frame
+  with prose (`e2e/chapter.ts`), and selectors stop at the paginator's
+  closed shadow root — tests go through frame objects.
+- **No document destruction.** Resize re-lays out the same document instead
+  of throwing it away, so highlights survive sidebar toggles — nothing
+  re-hooks anything. Sentences arrive as DOM ranges (`text/sentences.ts`),
+  never text searches, so repeats resolve by position.
 - `relocated` → `reader.scheduleSave()` debounces the shelf write, and
   `pagehide` flushes it. Playback position comes along in the note, so
   `reader.playFrom()` can continue mid-chapter.
 - Chapter CSS: `theme.ts` carries the highlight rules *and* per-theme link
-  colours (`LINK_CSS`), both injected into every chapter document. A book's own
-  stylesheet usually picks a link colour that disappears on our background, so
-  ours is `!important`; a test asserts the dark themes' links clear the page
-  background by a real contrast ratio. Scrolling to a sentence (auto-scroll, a
-  bookmark jump) centres the chapter's iframe *first*, then the sentence
-  inside it — centring the iframe alone would only land mid-chapter.
+  colours (`LINK_CSS`), both repainted into the live section via the
+  paginator's `setStyles()`. A book's own stylesheet usually picks a link
+  colour that disappears on our background, so ours is `!important`; a test
+  asserts the dark themes' links clear the page background by a real contrast
+  ratio. Scrolling to a sentence (auto-scroll, a bookmark jump) centres the
+  sentence itself — with one live section there is no iframe to centre first.
 - Bookmarks: made from the selection popup (`markSel`, which files the sentence
   the selection started in), listed by `BookmarksPanel` in the sidecar — it
   follows storage, so one made while the panel is open just appears. A jump
@@ -228,16 +225,15 @@ short excerpt). `test/blob.ts` shims `Blob.arrayBuffer()`, which jsdom lacks.
 context. `extension.spec.ts`: the manifest asks for nothing it doesn't use
 (`storage` + `nativeMessaging`, no host permissions); the toolbar opens the
 reader; a missing helper is reported honestly *and* play is disabled; hiding
-the sidebar really does replace the chapter document and Reader re-hooks the
-new one; a picked EPUB renders and leaves only a `shelf` entry; the book is
-one continuous scroll; a bookmark made from a selection is stored under the
-book's fingerprint, listed in the sidebar, counted on the start screen and
-deleted along with the book. `server.spec.ts`: builds the real Go binary and
-talks the framed native protocol at it (ping, settings round-trip, speech
-validation, prefetch + cache stats) — skipped without a Go toolchain.
-Because the book is one stack, several chapter documents are live at once:
-`e2e/chapter.ts` holds the helpers that pick the one a test means
-(`chapterFrames`, `proseFrame`, `frameWith`, `replacedFrame`).
+the sidebar keeps the highlight on the page; a picked EPUB renders and leaves
+only a `shelf` entry; a section scrolls and the contents jump to a chapter; a
+bookmark made from a selection is stored under the book's fingerprint, listed
+in the sidebar, counted on the start screen and deleted along with the book.
+`server.spec.ts`: builds the real Go binary and talks the framed native
+protocol at it (ping, settings round-trip, speech validation, prefetch +
+cache stats) — skipped without a Go toolchain. One section document is live
+at a time: `e2e/chapter.ts` holds the helpers that pick the frame with prose
+(`chapterFrames`, `proseFrame`, `frameWith`).
 
 ## Guidance
 

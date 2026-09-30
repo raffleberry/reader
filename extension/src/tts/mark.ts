@@ -1,14 +1,12 @@
 /**
  * The read-aloud highlight: the sentence being spoken, and the word in it.
  *
- * epub.js throws a chapter's document away and re-renders it whenever the
- * page is re-laid out — and hiding the sidebar does exactly that, because
- * the frame resizes. Anything we injected into that DOM dies with it. So
- * the highlight is kept here as *text*, and `reapply()` finds it again in
- * whatever document epub.js hands us next: the highlight follows the book,
- * not the DOM node, and it survives any re-render for any reason.
+ * The viewer keeps one section document alive and re-lays it out in place,
+ * so spans we inject survive resizes and sidebar toggles. The highlight is
+ * the sentence's own range (`showRange`), and word pills are painted inside
+ * it from the audio clock.
  */
-import { paintSentence, paintWord } from "./locate";
+import { paintWord } from "./locate";
 import type { PaintedSentence } from "./locate";
 
 export const SENT_CLS = "tts-sent";
@@ -65,35 +63,20 @@ export function current(): Mark | null {
   return cur;
 }
 
-/** Highlight this sentence in a document. Null when it isn't on the page. */
-export function show(doc: Document, text: string): Mark | null {
-  clear();
-  const ps = paintSentence(doc, text, SENT_CLS);
-  if (!ps) return null;
-  cur = new Mark(text, ps);
-  return cur;
-}
+import { paint } from "./locate";
 
-/**
- * Put the highlight back after epub.js re-rendered the chapter. True when it
- * was found again; false when nothing is highlighted or this document simply
- * isn't the one holding it (a page turn), in which case the existing mark is
- * left alone.
- */
-export function reapply(doc: Document): boolean {
-  const mark = cur;
-  if (!mark) return false;
-  if (mark.ps.doc === doc) {
-    // Same document, restyled: keep the spans, restart the word search.
-    mark.rewind();
-    return true;
+/** Highlight this sentence range in a document. Null when it cannot wrap. */
+export function showRange(doc: Document, range: Range): Mark | null {
+  clear();
+  let ps;
+  try {
+    const { el, unpaint } = paint(range, SENT_CLS);
+    ps = { doc, el, unpaint };
+  } catch {
+    return null;
   }
-  const ps = paintSentence(doc, mark.text, SENT_CLS);
-  if (!ps) return false;
-  const next = new Mark(mark.text, ps);
-  cur = next;
-  mark.dispose();
-  return true;
+  cur = new Mark(range.toString(), ps);
+  return cur;
 }
 
 /** Forget the highlight and take it back off the page. */

@@ -55,9 +55,9 @@ it — wherever you would have expected to hear something.
 
 ## Features
 
-**Open a book, forget it.** Choose an `.epub` (or drop it on the page). The
-whole book opens as **one long scroll** — no page turns, and scrolling never
-stops at a chapter edge — and it is never written anywhere.
+**Open a book, forget it.** Choose an `.epub` (or drop it on the page). Each
+chapter reads as its own clean scroll, and the book is never written
+anywhere.
 
 **Pick up where you stopped.** Choose the same file again and EPUB Reader returns you
 to the page, and pressing play continues from the sentence the voice was on, not

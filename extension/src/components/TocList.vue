@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { NavItem } from "epubjs";
+import type { TocItem } from "../foliate/book";
 
 interface FlatItem {
   href: string;
@@ -24,10 +24,10 @@ interface FlatItem {
   depth: number;
 }
 
-const props = defineProps<{ toc: NavItem[]; current: string }>();
+const props = defineProps<{ toc: TocItem[]; current: string }>();
 const emit = defineEmits<{ go: [href: string] }>();
 
-function flatten(items: NavItem[], depth: number, out: FlatItem[]): void {
+function flatten(items: TocItem[], depth: number, out: FlatItem[]): void {
   for (const item of items) {
     out.push({ href: item.href, label: item.label.trim() || item.href, depth });
     if (item.subitems?.length) flatten(item.subitems, depth + 1, out);

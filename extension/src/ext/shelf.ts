@@ -17,7 +17,7 @@ const HEAD_BYTES = 256 * 1024;
 const KEEP = 8;
 
 export interface Place {
-  /** epub.js CFI: the exact spot in the book. */
+  /** Section CFI: the exact spot in the book. */
   cfi: string;
   /** 1-based page, as the scrub row counts them. */
   page: number;

@@ -1,13 +1,18 @@
 import { chromium, test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import type { BrowserContext } from "@playwright/test";
-import { chapterFrames, frameWith, proseFrame, replacedFrame } from "./chapter";
+import { chapterFrames, frameWith, proseFrame } from "./chapter";
 
 /**
  * The extension as a user meets it: a toolbar button that opens a reader tab,
  * a start screen that opens a real EPUB, and an honest answer when the
  * speech server isn't running. Chromium loads the built MV3 output, so the
  * manifest and the content-security policy are the shipped ones.
+ *
+ * The viewer (foliate-js paginator) renders one section document at a time
+ * inside a closed shadow root, so tests find the book through the frame
+ * objects (page.frames) rather than CSS selectors, which stop at the shadow
+ * boundary.
  */
 
 const EXT = new URL("../.output/chrome-mv3", import.meta.url).pathname;
@@ -74,57 +79,58 @@ test("the start screen says so when the server is missing", async () => {
   }
 });
 
-test("hiding the sidebar re-renders the chapter, and Reader re-hooks it", async () => {
-  // Reported bug: collapsing the sidebar resized the frame, epub.js threw the
-  // chapter document away and re-rendered it — taking every highlight with it.
-  // The fix re-applies the highlight in the content hook, so this checks the
-  // two halves of that: that the document really is replaced, and that our
-  // hook runs on the replacement.
+test("hiding the sidebar keeps the highlight on the page", async () => {
+  // Reported bug under the old viewer: collapsing the sidebar resized the
+  // frame, the chapter document was thrown away and re-rendered, taking
+  // every highlight with it. The foliate viewer re-lays out the same
+  // document instead, so a highlight must survive the toggle.
   const { context, extensionId } = await withReader();
   try {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/reader.html`);
     await page.setInputFiles('input[type="file"]', FIXTURE);
-    await expect(page.locator(".reader-frame iframe").first()).toBeVisible({ timeout: 30_000 });
-    // The prose chapter, not the cover: the book is one continuous stack.
-    await expect.poll(async () => (await proseFrame(page)) !== undefined, { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => (await proseFrame(page)) !== undefined, { timeout: 30_000 }).toBe(true);
 
-    // Mark the live document, so we can tell it was replaced.
-    const before = await proseFrame(page);
-    expect(before).toBeDefined();
-    await before!.evaluate(() => {
-      (window as unknown as { __readerProbe?: number }).__readerProbe = 1;
+    // The book opens on its cover, which has no text to select: go to the
+    // first chapter through the contents list.
+    await page.locator(".sidecar-head").getByTitle("Table of contents").click();
+    await page.locator(".sidecar-body nav button", { hasText: /CHAPTER 1\./i }).click();
+    let frame = await frameWith(page, "Call me Ishmael");
+    await expect
+      .poll(
+        async () => {
+          frame = await frameWith(page, "Call me Ishmael");
+          return frame?.locator("p").count().catch(() => 0) ?? 0;
+        },
+        { timeout: 20_000 },
+      )
+      .toBeGreaterThan(0);
+
+    // Paint a highlight the way a bookmark jump does, then toggle.
+    const text = await frame!.evaluate(() => {
+      const p = [...document.querySelectorAll("p")].find((el) =>
+        (el.textContent ?? "").includes("Call me Ishmael"),
+      );
+      if (!p || !p.firstChild) throw new Error("no passage to highlight");
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      const span = document.createElement("span");
+      span.className = "tts-sent";
+      span.id = "e2e-flash";
+      span.appendChild(range.extractContents());
+      range.insertNode(span);
+      return span.textContent ?? "";
     });
+    expect(text).toContain("Call me Ishmael");
 
     await page.getByTitle("Hide sidebar").click();
     await expect(page.locator(".sidecar.collapsed")).toBeVisible();
 
-    // A brand new document, and Reader's own page styling applied to it.
-    await expect
-      .poll(
-        async () => {
-          // The frame is a new object after the re-render, so find it again —
-          // by its text, since the stack holds the other chapters too.
-          const frame = await replacedFrame(page, before!, "Project Gutenberg");
-          if (!frame) return "no frame";
-          // epub.js destroys the old iframe before the new one exists, so the
-          // frame can vanish under us mid-poll; that is just "not yet".
-          try {
-            const probe = await frame.evaluate(
-              () => (window as unknown as { __readerProbe?: number }).__readerProbe ?? 0,
-            );
-            const styled = await frame.evaluate(() => {
-              const style = document.getElementById("reader-page-style");
-              return !!style && style.textContent.includes(".tts-sent");
-            });
-            return probe === 0 && styled ? "re-hooked" : `probe=${probe} styled=${styled}`;
-          } catch {
-            return "detached";
-          }
-        },
-        { timeout: 15_000 },
-      )
-      .toBe("re-hooked");
+    // Same document, same highlight: nothing was thrown away.
+    const kept = await frame!.evaluate(
+      () => document.getElementById("e2e-flash")?.textContent ?? "",
+    );
+    expect(kept).toContain("Call me Ishmael");
   } finally {
     await context.close();
   }
@@ -137,9 +143,10 @@ test("a picked EPUB opens and renders, and only the place is kept", async () => 
     await page.goto(`chrome-extension://${extensionId}/reader.html`);
     await page.setInputFiles('input[type="file"]', FIXTURE);
 
-    // The book renders inside the viewer iframe.
-    await expect(page.locator(".reader-frame iframe").first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(".reader-frame")).toContainText(/\w/, { timeout: 30_000 });
+    // The book renders inside the viewer section document, and the bar
+    // learns its page count from the first relocation.
+    await expect.poll(async () => (await proseFrame(page)) !== undefined, { timeout: 30_000 }).toBe(true);
+    await expect(page.locator(".page-count")).not.toHaveText("–", { timeout: 30_000 });
 
     // The only thing in storage is a note about where we were. The write is
     // debounced (a scroll fires a burst of page turns), so wait for it.
@@ -164,68 +171,29 @@ test("a picked EPUB opens and renders, and only the place is kept", async () => 
   }
 });
 
-test("the book is one continuous scroll, and the contents jump to a chapter", async () => {
-  // The reader's default: no chapter edges, no overscroll pill — the wheel
-  // just keeps going, and epub.js stacks the next section as it is reached.
+test("one section scrolls, and the contents jump to a chapter", async () => {
+  // The reader shows one scrolling section at a time; moving between
+  // sections is explicit (TOC, scrubber, bookmarks, narration).
   const { context, extensionId } = await withReader();
   try {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/reader.html`);
     await page.setInputFiles('input[type="file"]', FIXTURE);
-    await expect(page.locator(".reader-frame iframe").first()).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => (await proseFrame(page)) !== undefined, { timeout: 30_000 }).toBe(true);
 
-    /** Where the book is: how many sections are stacked, and how far down. */
-    const scroll = async (): Promise<{ views: number; top: number; height: number; page: string }> => {
-      const at = await page.evaluate(() => {
-        const el = document.querySelector(".epub-container") as HTMLElement;
-        return {
-          views: el.querySelectorAll(".epub-view").length,
-          top: Math.round(el.scrollTop),
-          height: el.scrollHeight,
-          page: document.querySelector(".page-count")?.textContent?.trim() ?? "",
-        };
-      });
-      return at;
-    };
+    // Exactly one section document is alive — the old stack is gone.
+    await expect.poll(async () => chapterFrames(page).length, { timeout: 20_000 }).toBe(1);
+    const start = await page.locator(".page-count").textContent();
 
-    // The stack is primed before the reader has touched anything: the cover
-    // and the first chapter are one scroll, not two.
-    await expect.poll(async () => (await scroll()).views, { timeout: 20_000 }).toBeGreaterThan(1);
-    const start = await scroll();
-    expect(start.height).toBeGreaterThan(2000);
-    // Nothing to push against any more: the chapter-edge pill is gone.
-    await expect(page.locator(".over-ind")).toHaveCount(0);
-
-    // Wheel down: the book just keeps going, deep into itself.
-    for (let i = 0; i < 12; i++) {
-      await page.mouse.move(700, 400);
-      await page.mouse.wheel(0, 3000);
-      await page.waitForTimeout(120);
-    }
-    await expect.poll(async () => (await scroll()).top, { timeout: 20_000 }).toBeGreaterThan(10_000);
-    const deep = await scroll();
-    expect(deep.page).not.toBe(start.page);
-
-    // And back up to the very top, with no edge to stop at.
-    for (let i = 0; i < 20; i++) {
-      await page.mouse.move(700, 400);
-      await page.mouse.wheel(0, -3000);
-      await page.waitForTimeout(100);
-    }
-    await expect.poll(async () => (await scroll()).top, { timeout: 20_000 }).toBe(0);
-
-    // The contents still work: clicking a chapter puts that heading at the
-    // top of the book, in one continuous scroll.
+    // The contents still work: clicking a chapter shows its heading.
     await page.locator(".sidecar-head").getByTitle("Table of contents").click();
     const labels = await page.locator(".sidecar-body nav button").allTextContents();
     const wanted = labels.findIndex((l) => /CHAPTER 30\./i.test(l));
     expect(wanted).toBeGreaterThan(0);
     await page.locator(".sidecar-body nav button").nth(wanted).click();
 
-    // The chapter's own anchor lands in view. A chapter document is as tall as
-    // the chapter, so its own coordinates say nothing: add the iframe's
-    // position (the same mapping the selection popup uses) to get viewport
-    // coordinates, and require the heading to be on screen.
+    // The chapter's own heading lands on screen. Its document coordinates
+    // say nothing about the viewport, so add the iframe's offset.
     await expect
       .poll(
         async () => {
@@ -245,7 +213,9 @@ test("the book is one continuous scroll, and the contents jump to a chapter", as
       )
       .toBeGreaterThanOrEqual(0);
     // And the reader agrees it moved: the note in the bar is deep in the book.
-    expect(Number((await scroll()).page.split("/")[0].trim())).toBeGreaterThan(100);
+    const pageNow = await page.locator(".page-count").textContent();
+    expect(pageNow).not.toBe(start);
+    expect(Number(pageNow!.split("/")[0].trim())).toBeGreaterThan(1);
   } finally {
     await context.close();
   }
@@ -260,22 +230,26 @@ test("a bookmark is filed under the book, listed, and deleted with it", async ()
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/reader.html`);
     await page.setInputFiles('input[type="file"]', FIXTURE);
-    await expect(page.locator(".reader-frame iframe").first()).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => (await proseFrame(page)) !== undefined, { timeout: 30_000 }).toBe(true);
 
     // The book opens on its cover, which has no text to select: go to the
     // first chapter through the contents list.
     await page.locator(".sidecar-head").getByTitle("Table of contents").click();
-    await page.locator(".sidecar-body nav button").first().click();
-    const chapter = page.frameLocator(".reader-frame iframe").nth(1);
-    await expect.poll(async () => chapter.locator("p").count(), { timeout: 20_000 }).toBeGreaterThan(0);
+    await page.locator(".sidecar-body nav button", { hasText: /CHAPTER 1\./i }).click();
+    const frame = await frameWith(page, "Call me Ishmael");
+    expect(frame).toBeDefined();
+    await expect
+      .poll(async () => (await frameWith(page, "Call me Ishmael"))?.locator("p").count().catch(() => 0) ?? 0, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    const live = await frameWith(page, "Call me Ishmael");
 
-    // Tag a paragraph that is genuinely on screen. A chapter is one long
+    // Tag a paragraph that is genuinely on screen. A section is one long
     // scrolled document inside a tall iframe, so "the first <p>" is usually
     // text scrolled out of view — and the selection menu, which is placed
     // from the selection's own coordinates, would land off screen with it.
     const view = await page.locator(".reader-frame").boundingBox();
     expect(view).not.toBeNull();
-    await chapter.locator("body").evaluate((body, box) => {
+    await live!.locator("body").evaluate((body, box) => {
       const doc = body.ownerDocument;
       const off = (doc.defaultView?.frameElement as HTMLElement).getBoundingClientRect().top;
       const best = [...body.querySelectorAll("p")]
@@ -288,7 +262,7 @@ test("a bookmark is filed under the book, listed, and deleted with it", async ()
       if (!best) throw new Error("no on-screen paragraph to select");
       best.p.id = "e2e-passage";
     }, view!);
-    const passage = chapter.locator("#e2e-passage");
+    const passage = live!.locator("#e2e-passage");
     await passage.selectText();
     await passage.dispatchEvent("mouseup");
 

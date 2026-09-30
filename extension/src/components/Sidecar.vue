@@ -60,9 +60,10 @@ import SettingsPanel from "./SettingsPanel.vue";
 const reader = useReader();
 const car = useSidecar();
 
-/** Jump the open rendition to a TOC href (same resolution as before). */
+/** Jump the open viewer to a TOC href (same resolution as the scrubber). */
 function goToc(href: string): void {
-  const rendition = reader.rendition;
-  if (rendition) void rendition.display(href).catch(() => undefined);
+  const view = reader.view;
+  const target = reader.folio?.resolveHref(href);
+  if (view && target) void view.goTo(target).catch(() => undefined);
 }
 </script>

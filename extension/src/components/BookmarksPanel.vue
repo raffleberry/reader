@@ -30,8 +30,9 @@ import { onUnmounted, ref, watch } from "vue";
 import { dropMark, listMarks, watchBook } from "../ext/marks";
 import type { Mark } from "../ext/marks";
 import { useReader } from "../store/reader";
-import { ensureSentenceDoc } from "../store/player";
-import { findSentence, paint } from "../tts/locate";
+import { ensureSection } from "../store/player";
+import { rangeOfSentence, sectionStart } from "../text/sentences";
+import { paint } from "../tts/locate";
 import { SENT_CLS } from "../tts/mark";
 
 /** How long the sentence stays flashed after a jump. */
@@ -69,17 +70,14 @@ function follow(id: string): void {
  */
 async function jump(m: Mark): Promise<void> {
   const sent = reader.sentences[m.sent];
-  const rendition = reader.rendition;
-  if (!sent || !rendition) return;
+  const view = reader.view;
+  if (!sent || !view) return;
   // Give up if the book changes under us: paging on would be wandering.
-  const doc = await ensureSentenceDoc(rendition, sent, () => reader.book?.id === book.value);
+  const doc = await ensureSection(view, sent.chapter, () => reader.book?.id === book.value);
   if (!doc) return;
-  const found = findSentence(doc, sent.text);
-  if (!found) return;
-  const { el, unpaint } = paint(found.range, SENT_CLS);
-  // The chapter's iframe first, then the sentence inside it: centring the
-  // iframe would only land in the middle of the chapter.
-  doc.defaultView?.frameElement?.scrollIntoView?.({ block: "center" });
+  const range = rangeOfSentence(doc, m.sent - sectionStart(reader.sentences, m.sent));
+  if (!range) return;
+  const { el, unpaint } = paint(range, SENT_CLS);
   el.scrollIntoView({ block: "center" });
   window.setTimeout(unpaint, FLASH_MS);
 }

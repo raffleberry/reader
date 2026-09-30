@@ -1,20 +1,21 @@
 /**
- * The open book, the epub.js handles, and the one note we keep about it.
+ * The open book, the foliate viewer handles, and the one note we keep.
  *
- * A book exists only in this tab: bytes and sentences live in memory and
- * are dropped when the book is closed or the tab goes away. What survives
- * is `place` — a CFI, a page number, a chapter name and the sentence being
- * read — filed in the shelf under a fingerprint of the file.
+ * A book exists only in this tab: the parsed book and its sentences live in
+ * memory and are dropped when the book is closed or the tab goes away. What
+ * survives is `place` — a section CFI, a page number, a chapter name and the
+ * sentence being read — filed in the shelf under a fingerprint of the file.
  */
 import { computed, markRaw, ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
-import type { NavItem } from "epubjs";
-import { parseEpub } from "../text/epub";
+import { openEPUB } from "../foliate/book";
+import type { FoliateBook, TocItem } from "../foliate/book";
+import type { ReaderView } from "../foliate/render";
+import { segmentDoc } from "../text/sentences";
 import type { Sentence } from "../api/voice";
 import { sameChapter } from "../tts/cfi";
 import * as shelf from "../ext/shelf";
 import type { Place } from "../ext/shelf";
-import type { BookRendition } from "../types";
 
 export interface OpenBook {
   /** Fingerprint of the file, so "continue" recognises it next time. */
@@ -23,7 +24,6 @@ export interface OpenBook {
   name: string;
   title: string;
   size: number;
-  sentences: Sentence[];
 }
 
 /** How long to wait after a page turn before writing the note down. */
@@ -31,16 +31,17 @@ const SAVE_DEBOUNCE = 1200;
 
 export const useReader = defineStore("reader", () => {
   const book = ref<OpenBook | null>(null);
-  /** Raw EPUB bytes for the viewer (never reactive). */
-  const data = shallowRef<ArrayBuffer | null>(null);
+  /** The parsed foliate book (never reactive). */
+  const folio = shallowRef<FoliateBook | null>(null);
+  /** The mounted renderer (never reactive; Reader.vue owns its element). */
+  const view = shallowRef<ReaderView | null>(null);
   const sentences = ref<Sentence[]>([]);
-  /** Raw epub.js rendition (never reactive). */
-  const rendition = shallowRef<BookRendition | null>(null);
-  /** Book contents from vue-reader. */
-  const toc = ref<NavItem[]>([]);
-  /** Current location (CFI) and chapter href, as epub.js reports them. */
+  const toc = ref<TocItem[]>([]);
+  /** Current section CFI + id, as the renderer reports them. */
   const location = ref("");
   const chapterHref = ref("");
+  /** Live section index (relocate events keep this current). */
+  const section = ref(0);
   /** Generated-location page count, for the scrub row and the note. */
   const totalPages = ref(0);
   const curPage = ref(0);
@@ -55,20 +56,21 @@ export const useReader = defineStore("reader", () => {
     return n > 1 ? Math.min(1, Math.max(0, (curPage.value - 1) / (n - 1))) : 0;
   });
   const chapterLabel = computed(() => {
-    const href = (chapterHref.value || "").split("#")[0].split("/").pop();
-    const hit = toc.value.find((t) => t.href.split("#")[0].endsWith(href || ""));
-    return hit?.label || (href ? decodeURIComponent(href) : "");
+    const id = (chapterHref.value || "").split("#")[0];
+    const flat: TocItem[] = [];
+    const walk = (list: TocItem[]): void => {
+      for (const t of list) {
+        flat.push(t);
+        if (t.subitems?.length) walk(t.subitems);
+      }
+    };
+    walk(toc.value);
+    const hit = flat.find((t) => {
+      const h = (t.href || "").split("#")[0];
+      return h && id && (h.endsWith(id) || id.endsWith(h));
+    });
+    return hit?.label || (id ? decodeURIComponent(id.split("/").pop() || id) : "");
   });
-
-  /** Last path segment, decoded: manifest and viewer hrefs often differ. */
-  function baseName(h: string): string {
-    const last = h.split("/").pop() || "";
-    try {
-      return decodeURIComponent(last);
-    } catch {
-      return last;
-    }
-  }
 
   /**
    * Open a file the user picked. Parsed in memory; the only thing kept
@@ -78,26 +80,43 @@ export const useReader = defineStore("reader", () => {
     loading.value = true;
     error.value = "";
     try {
-      if (!file.name.toLowerCase().endsWith(".epub")) {
-        throw new Error("only .epub files are supported");
-      }
       const id = await shelf.fingerprint(file);
-      const [parsed, place] = await Promise.all([parseEpub(file), shelf.placeFor(id)]);
-      book.value = {
-        id,
-        name: file.name,
-        title: parsed.title,
-        size: file.size,
-        sentences: parsed.sentences,
-      };
-      data.value = markRaw(await file.arrayBuffer());
-      sentences.value = parsed.sentences;
+      const [folioBook, place] = await Promise.all([openEPUB(file), shelf.placeFor(id)]);
+      const sents: Sentence[] = [];
+      for (let s = 0; s < folioBook.sections.length; s++) {
+        const sec = folioBook.sections[s];
+        let doc: Document | null = null;
+        try {
+          doc = await sec.createDocument();
+        } catch {
+          continue;
+        }
+        if (!doc) continue;
+        for (const text of segmentDoc(doc)) {
+          const n = sents.length;
+          sents.push({
+            key: `${String(s).padStart(2, "0")}-${String(n).padStart(4, "0")}`,
+            chapter: s,
+            href: sec.id,
+            text,
+          });
+        }
+      }
+      if (!sents.length) throw new Error("no readable text found");
+      folio.value = markRaw(folioBook);
+      book.value = { id, name: file.name, title: folioBook.title, size: file.size };
+      sentences.value = sents;
+      toc.value = folioBook.toc;
       resumed.value = place ?? null;
-      // The viewer seeks to this CFI as soon as the book opens.
-      location.value = place?.cfi ?? "";
+      // The viewer seeks to this section as soon as the book opens.
+      const at = sectionIndexOf(place?.cfi ?? "");
+      section.value = at;
+      location.value = folioBook.sections[at]?.cfi ?? "";
+      chapterHref.value = folioBook.sections[at]?.id ?? "";
       totalPages.value = 0;
       curPage.value = 0;
     } catch (err) {
+      folio.value = null;
       book.value = null;
       error.value = (err as Error).message;
     } finally {
@@ -106,30 +125,50 @@ export const useReader = defineStore("reader", () => {
   }
 
   function close(): void {
+    try {
+      view.value?.destroy();
+    } catch {
+      // Already torn down.
+    }
+    view.value = null;
+    folio.value = null;
     book.value = null;
-    data.value = null;
     sentences.value = [];
-    rendition.value = null;
     toc.value = [];
     location.value = "";
     chapterHref.value = "";
+    section.value = 0;
     totalPages.value = 0;
     curPage.value = 0;
     resumed.value = null;
   }
 
-  function setRendition(r: BookRendition): void {
-    rendition.value = markRaw(r);
+  function setView(v: ReaderView): void {
+    view.value = markRaw(v);
   }
 
-  function setToc(items: NavItem[]): void {
+  function setToc(items: TocItem[]): void {
     toc.value = items;
   }
 
-  /** Location reported by the viewer (CFI + href). */
-  function setLocation(cfi: string, href: string): void {
-    if (cfi) location.value = cfi;
-    if (href) chapterHref.value = href;
+  /** Section index for a section CFI; first linear section when unknown. */
+  function sectionIndexOf(cfi: string): number {
+    const secs = folio.value?.sections ?? [];
+    if (cfi) {
+      const hit = secs.findIndex((s) => s.cfi === cfi);
+      if (hit >= 0) return hit;
+    }
+    const linear = secs.findIndex((s) => s.linear !== "no");
+    return linear >= 0 ? linear : 0;
+  }
+
+  /** Location reported by the viewer (section CFI + id). */
+  function setSection(i: number): void {
+    const sec = folio.value?.sections[i];
+    if (!sec) return;
+    section.value = i;
+    location.value = sec.cfi;
+    chapterHref.value = sec.id;
   }
 
   function setPages(page: number, pages: number): void {
@@ -137,20 +176,16 @@ export const useReader = defineStore("reader", () => {
     if (page > 0) curPage.value = page;
   }
 
-  /** Sentence indices of the current chapter (empty when unknown). */
+  /** Sentence indices of the current section (empty when unknown). */
   function chapterIndices(): number[] {
-    const href = (chapterHref.value || "").split("#")[0];
-    if (!sentences.value.length || !href) return [];
     const out: number[] = [];
     sentences.value.forEach((s, i) => {
-      const h = s.href.split("#")[0];
-      if (!h) return;
-      if (href.endsWith(h) || h.endsWith(href) || baseName(h) === baseName(href)) out.push(i);
+      if (s.chapter === section.value) out.push(i);
     });
     return out;
   }
 
-  /** First sentence of the current chapter. */
+  /** First sentence of the current section. */
   function firstAudible(): number {
     const inChapter = chapterIndices();
     return inChapter.length ? inChapter[0] : 0;
@@ -158,7 +193,7 @@ export const useReader = defineStore("reader", () => {
 
   /**
    * Where play should start: the sentence we were last reading aloud, as
-   * long as we're still in the chapter it was in, else this chapter's top.
+   * long as we're still in the section it was in, else this section's top.
    * This is what makes "continue" mean continue, not restart.
    */
   function playFrom(fallback: number): number {
@@ -208,12 +243,13 @@ export const useReader = defineStore("reader", () => {
 
   return {
     book,
-    data,
+    folio,
+    view,
     sentences,
-    rendition,
     toc,
     location,
     chapterHref,
+    section,
     totalPages,
     curPage,
     resumed,
@@ -224,9 +260,9 @@ export const useReader = defineStore("reader", () => {
     chapterIndices,
     firstAudible,
     playFrom,
-    setRendition,
+    setView,
     setToc,
-    setLocation,
+    setSection,
     setPages,
     open,
     close,

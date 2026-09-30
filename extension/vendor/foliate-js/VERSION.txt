@@ -1,0 +1,25 @@
+Vendored foliate-js
+====================
+
+THIS FILE IS OURS (not upstream). Keep it when updating.
+
+Source:  https://github.com/johnfactotum/foliate-js
+Commit:  78914aef4466eb960965702401634c2cb348e9b1 (main, 2026-09-30)
+License: MIT (see LICENSE in this folder)
+Vendored libraries inside it keep their own licenses:
+  vendor/zip.js  BSD-3-Clause
+  vendor/fflate.js  MIT
+  vendor/pdfjs  Apache-2.0 (plus Foxit/Liberation font licenses)
+
+What we use (EPUB reflowable only):
+  epub.js, epubcfi.js, paginator.js, progress.js, overlayer.js,
+  text-walker.js, search.js, tts.js, footnotes.js, vendor/zip.js
+  (view.js auto-detects other formats; we never open those, so
+  comic-book.js, fb2.js, mobi.js, pdf.js and vendor/pdfjs stay idle.)
+
+We do NOT use it as a submodule on purpose: updates are manual.
+To update: download the tarball for the new commit, diff against this
+folder, review upstream changes, then replace the folder and update the
+commit line above.
+
+Upstream warns the API is unstable with no releases; pin deliberately.
