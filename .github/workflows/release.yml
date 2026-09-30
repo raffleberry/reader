@@ -1,59 +1,55 @@
 name: release
 
+# Builds the extension zips + helper binaries for the pushed commit and
+# attaches them to a *draft* release. Nothing here mutates git state:
+# no `git tag`, no `git push`, no release deletion. The commit's short
+# hash is the only version identifier (draft tag `build-<sha>`).
+#
+# act (https://github.com/nektos/act) support:
+# - everything runs on ubuntu-latest (act has no Windows runners), the
+#   Windows helper is cross-compiled from Linux (pure Go, CGO off);
+# - checkout is shallow with no `git fetch --tags` (works offline);
+# - steps needing the GitHub API or the artifact server are skipped
+#   under act (`if: ${{ !env.ACT }}`); the builds themselves still run,
+#   so `act push` / `act -j build` verifies the artifacts locally.
+# - `workflow_dispatch` exists so `act -j build` can run without a push.
+
 on:
   push:
     branches: [release]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  tag:
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.next.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0
-      - id: next
+          # Shallow is enough: the short hash comes from the local HEAD,
+          # no tag history is consulted.
+          fetch-depth: 1
+
+      - id: sha
         run: |
           set -euo pipefail
-          git fetch --tags
-          ver=$(jq -r .version extension/package.json)
-          if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "extension/package.json version is not X.Y.Z: '$ver'" >&2
-            exit 1
-          fi
-          tag="v$ver"
-          if git rev-parse "$tag" >/dev/null 2>&1; then
-            echo "tag $tag already exists: bump extension/package.json first" >&2
-            exit 1
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          git tag "$tag"
-          git push origin "$tag"
+          short=$(git rev-parse --short HEAD)
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          echo "short hash: $short"
 
-  # The extension, for the Chrome Web Store, Edge and Firefox Add-ons.
-  extension:
-    needs: tag
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.tag.outputs.tag }}
       - uses: oven-sh/setup-bun@v2
         with:
           # Pinned so releases build with a known-good toolchain instead
           # of whatever `latest` happens to be that day.
           bun-version: "1.3.14"
+
       - run: bun install --frozen-lockfile
         working-directory: extension
-      # No unit tests here on purpose: releases just build and publish
-      # (extension tests still run via `just check`). An explicit build
-      # comes first: `wxt zip` only packages existing build output, so
-      # zipping without building can sail through with no zips at all
-      # (v1.0.2 shipped helper-only that way).
+
+      # `wxt zip` only packages existing build output, so build first:
+      # zipping without building can sail through with no zips at all.
       - run: bun run build
         working-directory: extension
       - run: bun run build:firefox
@@ -62,82 +58,60 @@ jobs:
         working-directory: extension
       - run: bun run zip:firefox
         working-directory: extension
-      # Prove the zips are visible at the repo-root-relative path the
-      # upload step uses (no working-directory here on purpose): if this
-      # fails, the path is wrong — not the uploader.
+
+      # Prove the zips exist (runs everywhere, including under act):
+      # if this fails, the path is wrong — not the uploader.
       - run: ls -la extension/.output/ && ls extension/.output/*.zip
-      - uses: actions/upload-artifact@v6
+
+      - uses: actions/setup-go@v6
         with:
-          name: extension
-          path: extension/.output/*.zip
+          go-version: "1.25"
+
+      # The helper is pure Go, so both binaries cross-compile from Linux.
+      # (One runner keeps this runnable under act, which has no Windows
+      # runners.) The build itself is the gate — if it compiles, it ships.
+      - run: |
+          set -euo pipefail
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -o ../dist/reader-${{ steps.sha.outputs.short }}-linux-amd64 .
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+            go build -o ../dist/reader-${{ steps.sha.outputs.short }}-windows-amd64.exe .
+          ls -la ../dist/
+        working-directory: tts
+
+      - run: ls -R extension/.output dist
+
+      # Visible in the Actions UI. Skipped under act: without an artifact
+      # server this fails, and the files are already on local disk.
+      - uses: actions/upload-artifact@v6
+        if: ${{ !env.ACT }}
+        with:
+          name: build-${{ steps.sha.outputs.short }}
+          path: |
+            extension/.output/*.zip
+            dist/reader-*
           # The default (`warn`) once let a build with no zips sail
           # through to a helper-only release. Fail instead.
           if-no-files-found: error
 
-  # The speech helper, as a self-contained binary (pure Go, no CGO).
-  helper:
-    needs: tag
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            goos: linux
-            suffix: ""
-          - os: windows-latest
-            goos: windows
-            suffix: ".exe"
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.tag.outputs.tag }}
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
-      # No vet/test here on purpose: releases just build and publish
-      # (helper tests still run via `just check`). The build itself
-      # is the gate — if it compiles, it ships.
-      - run: go build -o reader-${{ matrix.goos }}-amd64${{ matrix.suffix }} .
-        working-directory: tts
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: amd64
-          CGO_ENABLED: "0"
-      - uses: actions/upload-artifact@v6
-        with:
-          name: helper-${{ matrix.goos }}-${{ needs.tag.outputs.tag }}
-          path: tts/reader-*
-
-  publish:
-    needs: [tag, extension, helper]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/download-artifact@v7
-        with:
-          path: artifacts
-          merge-multiple: true
-      - run: ls -R artifacts
+      # Draft release keyed by commit hash. Creates the `build-<sha>` tag
+      # via the API (no local git mutation). Skipped under act: offline
+      # there is no API to talk to; re-runs on the same commit update
+      # the same draft.
       - uses: softprops/action-gh-release@v3
+        if: ${{ !env.ACT }}
         with:
-          tag_name: ${{ needs.tag.outputs.tag }}
-          target_commitish: release
+          tag_name: build-${{ steps.sha.outputs.short }}
+          target_commitish: ${{ github.sha }}
+          name: Build ${{ steps.sha.outputs.short }}
+          draft: true
+          prerelease: false
           generate_release_notes: true
           # Explicit patterns, not a bare `*`: with
           # `fail_on_unmatched_files` the publish fails instead of
           # shipping a release missing the extension or the helper.
           files: |
-            artifacts/*.zip
-            artifacts/reader-*
+            extension/.output/*.zip
+            dist/reader-*
           fail_on_unmatched_files: true
-      - run: |
-          set -euo pipefail
-          mapfile -t old < <(gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+(\.[0-9]+\.[0-9]+)?$' | sort -V | head -n -5 || true)
-          for t in ${old[@]:-}; do
-            echo "deleting old release $t"
-            gh release delete "$t" --cleanup-tag --yes
-          done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
