@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -247,6 +248,11 @@ func TestVendorDirLayout(t *testing.T) {
 	t.Setenv("READER_CONFIG_FILE", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+	if runtime.GOOS == "windows" {
+		// os.UserConfigDir ignores XDG vars on Windows and reads
+		// %APPDATA% instead.
+		t.Setenv("APPDATA", filepath.Join(tmp, "config"))
+	}
 	dir, err := appConfigDir()
 	if err != nil {
 		t.Fatal(err)
@@ -305,8 +311,13 @@ func TestInstallBinaryOverwrites(t *testing.T) {
 	if raw, _ := os.ReadFile(dest); string(raw) != "v1" {
 		t.Fatalf("dest = %q", raw)
 	}
-	if fi, err := os.Stat(dest); err != nil || fi.Mode().Perm()&0o111 == 0 {
-		t.Fatalf("dest not executable: %+v %v", fi, err)
+	if runtime.GOOS != "windows" {
+		// Windows has no exec bits: executability is the .exe
+		// suffix, not the mode. Chmod/Perm checks are meaningless
+		// there (Stat always reports 0666).
+		if fi, err := os.Stat(dest); err != nil || fi.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("dest not executable: %+v %v", fi, err)
+		}
 	}
 	if err := os.WriteFile(src, []byte("v2-longer"), 0o755); err != nil {
 		t.Fatal(err)
