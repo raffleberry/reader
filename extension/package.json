@@ -1,6 +1,6 @@
 {
   "name": "epub-reader-extension",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "EPUB Reader — read EPUB books aloud, as a browser extension.",
