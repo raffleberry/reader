@@ -5,16 +5,16 @@ EPUB Reader + read-aloud, as a browser extension (WXT, MV3) plus a Go speech hel
 ## Commands (`just` is truth; don't invent)
 
 - `setup` (go mod download + bun install) · `tts` (run the helper: installs with a report, then exits) · `host-install [ID]` (register the helper for dev) · `ext` / `ext-firefox` (wxt dev, opens a browser with the extension)
-- `build` → extension/.output/chrome-mv3 · `build-firefox` → .output/firefox-mv3 · `zip` (both store archives) · `check` (go vet + go test + vitest + vue-tsc + build) · `e2e` (playwright vs the built extension + the real binary; first time: `bun x playwright install chromium`) · `package` (go build → dist/epub-reader) · `package-all` (linux + windows)
+- `build` → extension/.output/chrome-mv3 · `build-firefox` → .output/firefox-mv3 · `zip` (both store archives) · `check` (go vet + go test + vitest + vue-tsc + build) · `e2e` (playwright vs the built extension + the real binary; first time: `bun x playwright install chromium`) · `package` (go build → dist/reader) · `package-all` (linux + windows)
 - JS CLI runs under bun (`bun x wxt …`); no node/npm in this environment.
 
 ## Helper (`tts/`, Go module `github.com/raffleberry/reader/tts`)
 
-- One binary, two jobs: user launch (a terminal install with a per-manifest report, then exit; nothing stays running), native host (`--native-host` or stdin-is-a-pipe: length-prefixed stdio loop until EOF, then exit), plus `--install`/`--uninstall`. `--extension-id` (repeatable) + `EPUB_READER_EXTENSION_IDS` authorise Chrome unpacked ids; Firefox's `reader@raffleberry.github.io` is built in. Host name `com.raffleberry.epubreader`, app `epub-reader`. No GUI, no tray: there is no `--tray` flag (it exits with a pointer to just run the binary).
+- One binary, two jobs: user launch (a terminal install with a per-manifest report, then exit; nothing stays running), native host (`--native-host` or stdin-is-a-pipe: length-prefixed stdio loop until EOF, then exit), plus `--install`/`--uninstall`. `--extension-id` (repeatable) + `READER_EXTENSION_IDS` authorise Chrome unpacked ids; Firefox's `reader@io.github.raffleberry` is built in. Host name `io.github.raffleberry.reader`, app `reader`. No GUI, no tray: there is no `--tray` flag (it exits with a pointer to just run the binary).
 - Methods: `ping` (`{ok, version}`), `getSettings`/`putSettings`, `cacheStats`/`clearCache`, `speak {text, voice?}` (base64 MP3 + words), `ttsWords`, `prefetch {texts}` (first 20, junk skipped). Speech fail → `ok:false`.
-- Settings: validated JSON (`cache_mb` 10-2000, `readahead` 0-10, voice str) in the system config dir; `saveSettings` re-trims the cache. `Lru` = bounded on-disk MP3+timings cache keyed `sha1(voice+text)`; `cacheStore()` rebuilds when the base changes so tests pin temp dirs via `EPUB_READER_CACHE_DIR` / `EPUB_READER_CONFIG_FILE`.
+- Settings: validated JSON (`cache_mb` 10-2000, `readahead` 0-10, voice str) in the system config dir; `saveSettings` re-trims the cache. `Lru` = bounded on-disk MP3+timings cache keyed `sha1(voice+text)`; `cacheStore()` rebuilds when the base changes so tests pin temp dirs via `READER_CACHE_DIR` / `READER_CONFIG_FILE`.
 - Speech via `github.com/raffleberry/edge-tts-go` (`NewCommunicate` + `Stream`, `WordBoundary`; ticks/10000 = ms).
-- Dirs: `~/.cache/raffleberry.github.io/epub-reader/tts`, `~/.config/raffleberry.github.io/epub-reader/` (binary + `settings.json`) on Linux; OS dirs elsewhere.
+- Dirs: `~/.cache/io.github.raffleberry/reader/tts`, `~/.config/io.github.raffleberry/reader/` (binary + `settings.json`) on Linux; OS dirs elsewhere.
 
 ## Extension (`extension/`, WXT + bun, TS `<script setup>`, Bootstrap; custom CSS in src/assets/app.css)
 

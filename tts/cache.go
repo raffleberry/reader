@@ -193,7 +193,7 @@ var (
 )
 
 // cacheStore is the process-wide cache, built on first use. It rebuilds when
-// the effective base dir changes (EPUB_READER_CACHE_DIR), so tests can point
+// the effective base dir changes (READER_CACHE_DIR), so tests can point
 // it at a temp dir.
 func cacheStore() *Lru {
 	base, err := cacheBase()

@@ -12,7 +12,7 @@ import (
 )
 
 // Firefox's stable add-on ID; Chrome/Edge IDs come from --extension-id.
-const firefoxID = "reader@raffleberry.github.io"
+const firefoxID = "reader@io.github.raffleberry"
 
 // manifest is the native-messaging host file both browsers read.
 type manifest struct {
@@ -65,7 +65,7 @@ func binaryName() string {
 // installedBinaryPath is where --install keeps the helper:
 // os.UserConfigDir / Vendor / App / binaryName. Manifests point here so
 // the user cannot break speech by deleting the download folder. Tests can
-// redirect the whole config dir with EPUB_READER_CONFIG_DIR.
+// redirect the whole config dir with READER_CONFIG_DIR.
 func installedBinaryPath() (string, error) {
 	dir, err := appConfigDir()
 	if err != nil {
@@ -98,7 +98,7 @@ func installBinaryFrom(src string) (string, error) {
 	if cur, rerr := os.ReadFile(dest); rerr == nil && bytes.Equal(cur, raw) {
 		return dest, nil // already current; nothing to do
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".epub-reader-bin-*")
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".reader-bin-*")
 	if err != nil {
 		return "", err
 	}

@@ -26,7 +26,7 @@ export default defineConfig({
       ? {
           browser_specific_settings: {
             gecko: {
-              id: "reader@raffleberry.github.io",
+              id: "reader@io.github.raffleberry",
               data_collection_permissions: { required: ["none"] },
             },
           },

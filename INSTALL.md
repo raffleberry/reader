@@ -31,8 +31,8 @@ start reading. Reading works already — speech comes next.
 From the same [releases page](https://github.com/raffleberry/reader/releases/latest),
 download the helper for your computer:
 
-- Windows: `epub-reader-windows-amd64.exe`
-- Linux: `epub-reader-linux-amd64`
+- Windows: `reader-windows-amd64.exe`
+- Linux: `reader-linux-amd64`
 
 It is one file, and you can run it from anywhere: on its first run it
 copies itself into its own folder and registers with the browsers, so
@@ -71,13 +71,13 @@ window of its own: running it just installs it and exits.
 terminal says: it names every registration it wrote. Then press
 *Retry* in the reader.
 
-**Chrome loaded unpacked says no, but Firefox works.** Unpacked Chrome
+**Chrome loaded unpacked says no, but the speech helper works in Firefox.** Unpacked Chrome
 extensions get a per-machine id, and the helper allow-lists the ids it
 was told about at install time. Find the id on `chrome://extensions`,
 then reinstall from a terminal:
 
 ```
-epub-reader --install --extension-id PASTE_THE_ID_HERE
+reader --install --extension-id PASTE_THE_ID_HERE
 ```
 
 Store-installed EPUB Reader needs none of this: its id ships in the
@@ -86,22 +86,22 @@ helper already.
 **Windows SmartScreen / macOS "unidentified developer".** The helper is
 unsigned, so the first run may need an explicit allow: Windows →
 *More info → Run anyway*; macOS → System Settings → Privacy & Security →
-*Open Anyway* (or `xattr -d com.apple.quarantine epub-reader-…*).
+*Open Anyway* (or `xattr -d com.apple.quarantine reader-…*).
 
 **One helper, several browsers.** Installing registers it for Chrome,
 Edge, Brave, Chromium *and* Firefox at once. Run once, use anywhere.
 
 ## Uninstall
 
-1. Run `epub-reader --uninstall` (removes the browser registration;
+1. Run `reader --uninstall` (removes the browser registration;
    the installed helper file is left in place — delete that folder too
    if you want everything gone).
 2. Delete the download, if you still have it.
 3. Remove the extension from the browser.
 4. Optionally delete cached speech and settings:
-   - Linux: `~/.cache/raffleberry.github.io/epub-reader`, `~/.config/raffleberry.github.io/epub-reader`
-   - macOS: `~/Library/Caches/raffleberry.github.io/epub-reader`, `~/Library/Application Support/raffleberry.github.io/epub-reader`
-   - Windows: `%LOCALAPPDATA%\raffleberry.github.io\epub-reader`, `%APPDATA%\raffleberry.github.io\epub-reader`
+   - Linux: `~/.cache/io.github.raffleberry/reader`, `~/.config/io.github.raffleberry/reader`
+   - macOS: `~/Library/Caches/io.github.raffleberry/reader`, `~/Library/Application Support/io.github.raffleberry/reader`
+   - Windows: `%LOCALAPPDATA%\io.github.raffleberry\reader`, `%APPDATA%\io.github.raffleberry\reader`
 
 ## Privacy in one paragraph
 

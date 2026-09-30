@@ -55,12 +55,12 @@ check:
 e2e:
     cd extension && bun run e2e
 
-# Portable helper for the current OS. Output: dist/epub-reader[-version].
+# Portable helper for the current OS. Output: dist/reader[-version].
 package:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p dist
-    (cd tts && go build -o ../dist/epub-reader .)
+    (cd tts && go build -o ../dist/reader .)
 
 # Portable helpers for Linux + Windows (needs zig or mingw for cgo-free
 # cross builds; the helper is pure Go, so plain GOOS suffices).
@@ -68,8 +68,8 @@ package-all:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p dist
-    (cd tts && GOOS=linux GOARCH=amd64 go build -o ../dist/epub-reader-linux-amd64 .)
-    (cd tts && GOOS=windows GOARCH=amd64 go build -o ../dist/epub-reader-windows-amd64.exe .)
+    (cd tts && GOOS=linux GOARCH=amd64 go build -o ../dist/reader-linux-amd64 .)
+    (cd tts && GOOS=windows GOARCH=amd64 go build -o ../dist/reader-windows-amd64.exe .)
 
 # Remove build output and caches.
 clean:

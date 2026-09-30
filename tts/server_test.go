@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,8 +14,8 @@ import (
 
 func testEnv(t *testing.T, tmp string) {
 	t.Helper()
-	t.Setenv("EPUB_READER_CONFIG_FILE", filepath.Join(tmp, "settings.json"))
-	t.Setenv("EPUB_READER_CACHE_DIR", filepath.Join(tmp, "tts"))
+	t.Setenv("READER_CONFIG_FILE", filepath.Join(tmp, "settings.json"))
+	t.Setenv("READER_CACHE_DIR", filepath.Join(tmp, "tts"))
 }
 
 // --- settings ---
@@ -242,8 +243,8 @@ func TestDispatchCacheStats(t *testing.T) {
 
 func TestVendorDirLayout(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("EPUB_READER_CONFIG_DIR", "")
-	t.Setenv("EPUB_READER_CONFIG_FILE", "")
+	t.Setenv("READER_CONFIG_DIR", "")
+	t.Setenv("READER_CONFIG_FILE", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 	dir, err := appConfigDir()
@@ -270,9 +271,29 @@ func TestVendorDirLayout(t *testing.T) {
 	}
 }
 
+func TestManifestUsesNewHost(t *testing.T) {
+	raw, err := manifestBytes("/tmp/reader", []string{"deadbeef"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m manifest
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Name != Host || Host != "io.github.raffleberry.reader" {
+		t.Fatalf("manifest name = %q", m.Name)
+	}
+	if len(m.AllowedExtensions) != 1 || m.AllowedExtensions[0] != firefoxID {
+		t.Fatalf("allowed extensions = %q", m.AllowedExtensions)
+	}
+	if firefoxID != "reader@io.github.raffleberry" {
+		t.Fatalf("firefox id = %q", firefoxID)
+	}
+}
+
 func TestInstallBinaryOverwrites(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("EPUB_READER_CONFIG_DIR", filepath.Join(tmp, "cfg"))
+	t.Setenv("READER_CONFIG_DIR", filepath.Join(tmp, "cfg"))
 	src := filepath.Join(tmp, "src-bin")
 	if err := os.WriteFile(src, []byte("v1"), 0o755); err != nil {
 		t.Fatal(err)

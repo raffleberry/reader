@@ -15,7 +15,7 @@ func (l *idList) String() string     { return strings.Join(*l, ",") }
 func (l *idList) Set(v string) error { *l = append(*l, v); return nil }
 
 func chromeIDsFromEnv() []string {
-	raw := os.Getenv("EPUB_READER_EXTENSION_IDS")
+	raw := os.Getenv("READER_EXTENSION_IDS")
 	if raw == "" {
 		return nil
 	}

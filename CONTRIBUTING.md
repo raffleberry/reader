@@ -14,7 +14,7 @@ EPUB Reader is two halves that never share state:
   text of the sentence being read and nothing else — no book, no filename, no
   reading history.
 
-The browser starts the helper over **native messaging** (`com.raffleberry.epubreader`)
+The browser starts the helper over **native messaging** (`io.github.raffleberry.reader`)
 whenever speech is needed, and the helper exits when the browser hangs up —
 autostart and autoclose, with no port, no address and nothing to keep running.
 If it isn't installed, that is a first-class state in the UI, not an error:
@@ -75,7 +75,7 @@ tts/                # the speech helper (Go module)
   `--native-host`) it serves one native-messaging session on
   stdin/stdout until EOF and exits. `--uninstall` only unregisters and
   exits. `--extension-id ID` (repeatable, or
-  `EPUB_READER_EXTENSION_IDS`) authorises extra Chrome unpacked ids.
+  `READER_EXTENSION_IDS`) authorises extra Chrome unpacked ids.
 - **Protocol.** 4-byte little-endian length + JSON. Request
   `{"id":1,"method":"speak","params":{"text":"…"}}`; response
   `{"id":1,"ok":true,"result":{…}}` or `{"id":1,"ok":false,"error":"…"}}`.
@@ -87,10 +87,11 @@ tts/                # the speech helper (Go module)
 - **`Lru`** is a bounded on-disk cache of MP3 + word timings, keyed
   `sha1(voice + text)` so identical sentences share an entry across books.
   `saveSettings()` re-trims it when the size cap changes.
-- **Dirs:** `~/.cache/epub-reader/tts`, `~/.config/epub-reader/settings.json`
+- **Dirs:** `~/.cache/io.github.raffleberry/reader/tts`, `~/.config/io.github.raffleberry/reader/settings.json`
   (Linux; OS cache/config dirs elsewhere). Overridable for tests with
-  `EPUB_READER_CACHE_DIR` / `EPUB_READER_CONFIG_FILE`.
-- **Install** writes `com.raffleberry.epubreader.json` into every
+  `READER_CACHE_DIR` / `READER_CONFIG_FILE` (`READER_CONFIG_DIR` redirects
+  the whole config dir).
+- **Install** writes `io.github.raffleberry.reader.json` into every
   Chromium profile dir + Firefox's hosts dir (plus the registry on
   Windows), pointing at the running executable — so moving the file means
   running it once more. The manifest allow-lists Firefox's stable add-on
@@ -200,7 +201,7 @@ tts/                # the speech helper (Go module)
 - `check` (go vet + go test + vitest + vue-tsc + build) · `e2e` (playwright
   against the built extension + the real binary; first time:
   `bun x playwright install chromium`) · `package` (go build →
-  `dist/epub-reader`) · `package-all` (linux + windows)
+  `dist/reader`) · `package-all` (linux + windows)
 
 ## Tests
 

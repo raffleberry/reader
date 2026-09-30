@@ -33,16 +33,16 @@ test.afterAll(() => {
 });
 
 test.beforeAll(() => {
-  const dir = mkdtempSync(join(tmpdir(), "epub-reader-e2e-"));
+  const dir = mkdtempSync(join(tmpdir(), "reader-e2e-"));
   scratch.push(dir);
-  bin = join(dir, "epub-reader");
+  bin = join(dir, "reader");
   execFileSync("go", ["build", "-o", bin, "."], { cwd: TTS, stdio: "inherit" });
-  const profile = mkdtempSync(join(tmpdir(), "epub-reader-profile-"));
+  const profile = mkdtempSync(join(tmpdir(), "reader-profile-"));
   scratch.push(profile);
   env = {
     ...process.env,
-    EPUB_READER_CONFIG_FILE: join(profile, "settings.json"),
-    EPUB_READER_CACHE_DIR: join(profile, "tts"),
+    READER_CONFIG_FILE: join(profile, "settings.json"),
+    READER_CACHE_DIR: join(profile, "tts"),
   };
 });
 
